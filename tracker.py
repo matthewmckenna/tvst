@@ -5,6 +5,7 @@ Utility to keep track of TV shows
 # import argparse
 import json
 # import logging
+import requests
 import sys
 
 
@@ -25,41 +26,41 @@ class TrackerError(Exception):
 # Taken from https://github.com/bslatkin/effectivepython
 class ToDictMixin:
     def to_dict(self):
-        print('Call _traverse_dict with: {}'.format(self.__dict__))
+        # print('Call _traverse_dict with: {}'.format(self.__dict__))
         return self._traverse_dict(self.__dict__)
 
     def _traverse_dict(self, instance_dict):
         output = {}
         for key, value in instance_dict.items():
-            print('key={} value={}'.format(key, value))
+            # print('key={} value={}'.format(key, value))
             output[key] = self._traverse(key, value)
         return output
 
     def _traverse(self, key, value):
-        print('In _traverse:')
+        # print('In _traverse:')
         if isinstance(value, ToDictMixin):
-            print('isinstance ToDictMixin')
+            # print('isinstance ToDictMixin')
             return value.to_dict()
         elif isinstance(value, dict):
-            print('isinstance dict')
+            # print('isinstance dict')
             return self._traverse_dict(value)
         elif isinstance(value, list):
-            print('isinstance list')
+            # print('isinstance list')
             return [self._traverse(key, i) for i in value]
         elif hasattr(value, '__dict__'):
-            print('hasattr __dict__')
+            # print('hasattr __dict__')
             return self._traverse_dict(value.__dict__)
         else:
-            print('else return value: {}'.format(value))
+            # print('else return value: {}'.format(value))
             return value
 
 
 class JSONMixin:
     @classmethod
     def from_json(cls, data):
-        print('cls={} data={}'.format(cls, data))
+        # print('cls={} data={}'.format(cls, data))
         kwargs = json.loads(data)
-        print('kwargs={}'.format(kwargs))
+        # print('kwargs={}'.format(kwargs))
         return cls(**kwargs)
 
     def to_json(self, indent=4, sort_keys=True):
@@ -72,19 +73,45 @@ class ShowNotTrackedError(TrackerError):
 
 class Season:
     """Represent a season of a TV show"""
-    def __init__(self, episodes):
-        self.episodes = []
-        self.episodes_this_season = len(episodes)
+    def __init__(self):
+            self._episodes = []
+        self.episodes_this_season = 0
+
+    def add_episode(self, season, episode_details):
+        """Add an episode object to self._episodes"""
+        self._episodes.append(Episode(season, episode_details))
+
+    def build_season(self, details):
+        """Build a season of episodes"""
+        season = int(details['Season'])
+        for episode in details['Episodes']:
+            self.add_episode(season, episode)
+
+        # Update the number of episodes this season
+        self.episodes_this_season = len(self._episodes)
+
+    def __getitem__(self, index):
+        return self._episodes[index]
+
+    def __iter__(self):
+        return iter(self._episodes)
+
+    def __len__(self):
+        return len(self._episodes)
 
 
 class Episode:
-    def __init__(self, episode=1, season=1, title=None, ratings=None):
-        if ratings is None:
-            ratings = {}
-        self.episode = episode
+    def __init__(self, season, episode_details):
+        self.episode = int(episode_details['Episode'])
+        self.title = episode_details['Title']
         self.season = season
-        self.title = None
-        self.ratings = ratings
+        try:
+            rating = float(episode_details['imdbRating'])
+        except ValueError:
+            # Rating may come through as 'N/A' if episode has not aired
+            rating = None
+
+        self.ratings = {'imdb': rating}
 
 
 class Show(ToDictMixin, JSONMixin):
@@ -93,15 +120,48 @@ class Show(ToDictMixin, JSONMixin):
     Available attributes:
         next
     """
-    def __init__(self, title, short_code=None, **episode_details):
+    def __init__(self, title=None, short_code=None):
         self.title = title
-        self.lunder_title = lunderise(title)
-        self.next = Episode()
-        self.previous = Episode()
+        self._seasons = []
+        self.next = None
+        self.previous = None
         self.short_code = short_code
-        self.available_on = None
-        self.status = None
 
+    def get_season_details(self, season):
+        """Make API request with season information"""
+        payload = {'t': self.title, 'season': season}
+        with requests.Session() as s:
+            response = s.get('http://www.omdbapi.com', params=payload)
+
+        # TODO: Add error checking to response object
+        return response.json()
+
+    def populate_seasons(self, update_title=False):
+        # Get first season information so that we have the total number of
+        # seasons available
+        # IO
+        season_details = self.get_season_details(season=1)
+        total_seasons = int(season_details['totalSeasons'])
+        self.add_season(season_details)
+
+        # IO
+        if total_seasons > 1:
+            for season in range(2, total_seasons+1):
+                season_details = self.get_season_details(season=season)
+                self.add_season(season_details)
+
+        # TODO: Wrong place to do this
+        # Update the show title
+        if update_title:
+            self.title = season_details['Title']
+
+    def add_season(self, season_details):
+        s = Season()
+        s.build_season(season_details)
+        self._seasons.append(s)
+
+# supernatural._seasons[0]._episodes[0].rating['imdb']
+# supernatural.next.
     # def update(self, from_file=True):
     #     if from_file:
     #         self.next['season'], self.next['episode'] = show_update()
@@ -115,6 +175,13 @@ class Show(ToDictMixin, JSONMixin):
 # game_of_thrones = Show('Game of Thrones')
 # query = 'game of thrones'
 # show = getattr(sys.modules[__name__], query)
+def test_update_database():
+    shows = ['Game of Thrones']
+    s = Show(shows[0])
+    s.populate_seasons()
+
+    with open('db_test.json', 'w') as f:
+        json.dump(s.to_dict(), f, indent=4, sort_keys=True)
 
 class Tracker:
     """Provided methods to read current tracker information.
@@ -190,7 +257,8 @@ def testing():
 
 def main(args):
     """Main entry point for this utility"""
-    testing()
+    # testing()
+    test_update_database()
 
 
 if __name__ == '__main__':
