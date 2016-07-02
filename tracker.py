@@ -74,18 +74,22 @@ class ShowNotTrackedError(TrackerError):
 class Season:
     """Represent a season of a TV show"""
     def __init__(self):
-            self._episodes = []
+        self._episodes = []
         self.episodes_this_season = 0
 
-    def add_episode(self, season, episode_details):
+    def add_episode(self, episode):
         """Add an episode object to self._episodes"""
-        self._episodes.append(Episode(season, episode_details))
+        self._episodes.append(episode)
+
+    def construct_episode(self, season, episode_details):
+        return Episode(season, episode_details)
 
     def build_season(self, details):
         """Build a season of episodes"""
         season = int(details['Season'])
         for episode in details['Episodes']:
-            self.add_episode(season, episode)
+            # ep = self.construct_episode(season, episode)
+            self.add_episode(self.construct_episode(season, episode))
 
         # Update the number of episodes this season
         self.episodes_this_season = len(self._episodes)
@@ -114,7 +118,7 @@ class Episode:
         self.ratings = {'imdb': rating}
 
 
-class Show(ToDictMixin, JSONMixin):
+class Show:
     """Represent various details of a show.
 
     Available attributes:
@@ -122,6 +126,7 @@ class Show(ToDictMixin, JSONMixin):
     """
     def __init__(self, title=None, short_code=None):
         self.title = title
+        self.ltitle = lunderise(title)
         self._seasons = []
         self.next = None
         self.previous = None
@@ -160,6 +165,18 @@ class Show(ToDictMixin, JSONMixin):
         s.build_season(season_details)
         self._seasons.append(s)
 
+    # def __getitem__(self, index):
+    #     return self._seasons[index]
+
+
+class ShowDatabase(ToDictMixin, JSONMixin):
+    def __init__(self):
+        self._shows = {}
+
+    def add_show(self, show):
+        show.populate_seasons()
+        self._shows[show.ltitle] = show
+
 # supernatural._seasons[0]._episodes[0].rating['imdb']
 # supernatural.next.
     # def update(self, from_file=True):
@@ -176,12 +193,13 @@ class Show(ToDictMixin, JSONMixin):
 # query = 'game of thrones'
 # show = getattr(sys.modules[__name__], query)
 def test_update_database():
-    shows = ['Game of Thrones']
-    s = Show(shows[0])
-    s.populate_seasons()
+    shows = ['Game of Thrones', 'Silicon Valley']
+    show_db = ShowDatabase()
+    for show in shows:
+        show_db.add_show(Show(show))
 
     with open('db_test.json', 'w') as f:
-        json.dump(s.to_dict(), f, indent=4, sort_keys=True)
+        json.dump(show_db.to_dict(), f, indent=2, sort_keys=True)
 
 class Tracker:
     """Provided methods to read current tracker information.
