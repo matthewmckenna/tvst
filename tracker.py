@@ -8,9 +8,8 @@ import json
 import requests
 import sys
 
-
 # from utils import ToDictMixin, JSONMixin  # TODO: Move these classes
-from parse_next_episode import titleise, lunderise  # TODO: Place this in a utils package
+from utils import titleize, lunderize, sanitize_title
 
 # TODO: Add command line arguments
 # TODO: Add logging
@@ -70,6 +69,12 @@ class JSONMixin:
 class ShowNotTrackedError(TrackerError):
     pass
 
+class ShowDatabaseError(Exception):
+    pass
+
+class ShowNotFoundError(ShowDatabaseError):
+    pass
+
 
 class Season:
     """Represent a season of a TV show"""
@@ -126,34 +131,42 @@ class Show:
     """
     def __init__(self, title=None, short_code=None):
         self.title = title
-        self.ltitle = lunderise(title)
+        self.request_title = sanitize_title(title)
+        self.ltitle = lunderize(title)
         self._seasons = []
         self.next = None
         self.previous = None
         self.short_code = short_code
 
-    def get_season_details(self, season):
+    def request_show_info(self, season=None):
         """Make API request with season information"""
-        payload = {'t': self.title, 'season': season}
+        if season:
+            payload = {'t': self.request_title, 'season': season}
+        else:
+            payload = {'t': self.request_title}
+
         with requests.Session() as s:
             response = s.get('http://www.omdbapi.com', params=payload)
+
+        response.raise_for_status()
 
         # TODO: Add error checking to response object
         return response.json()
 
-    def populate_seasons(self, update_title=False):
-        # Get first season information so that we have the total number of
-        # seasons available
+    def populate_seasons(self, update_title=True):
         # IO
-        season_details = self.get_season_details(season=1)
-        total_seasons = int(season_details['totalSeasons'])
-        self.add_season(season_details)
+        show_details = self.request_show_info()
+
+        # Response value is returned as a string
+        if show_details['Response'] == 'False':
+            raise ShowNotFoundError
+
+        total_seasons = int(show_details['totalSeasons'])
 
         # IO
-        if total_seasons > 1:
-            for season in range(2, total_seasons+1):
-                season_details = self.get_season_details(season=season)
-                self.add_season(season_details)
+        for season in range(1, total_seasons+1):
+            season_details = self.request_show_info(season=season)
+            self.add_season(season_details)
 
         # TODO: Wrong place to do this
         # Update the show title
@@ -164,9 +177,6 @@ class Show:
         s = Season()
         s.build_season(season_details)
         self._seasons.append(s)
-
-    # def __getitem__(self, index):
-    #     return self._seasons[index]
 
 
 class ShowDatabase(ToDictMixin, JSONMixin):

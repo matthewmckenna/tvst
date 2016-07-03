@@ -3,6 +3,7 @@ import json
 import unittest
 
 import tracker
+import utils
 
 
 # class TrackerTestCase(unittest.TestCase):
@@ -126,11 +127,14 @@ class SeasonTestCase(unittest.TestCase):
 class GoodInitShowTestCase(unittest.TestCase):
     """Test case for Show class"""
     def setUp(self):
-        s = 'Game of Thrones'
-        self.show = tracker.Show(s, short_code='GOT')
+        self.s = 'Game of Thrones'
+        self.show = tracker.Show(self.s, short_code='GOT')
 
     def test_good_show_title(self):
-        self.assertEqual(self.show.title, 'Game of Thrones')
+        self.assertEqual(self.show.title, self.s)
+
+    def test_good_request_title(self):
+        self.assertEqual(self.show.request_title, 'game of thrones')
 
     def test_good_lunder_title(self):
         """Test that we correctly lunderize the title"""
@@ -157,6 +161,12 @@ class GoodInitShowTestCase(unittest.TestCase):
         s = tracker.Show('Game of Thrones')
         self.assertEqual(s.short_code, None)
 
+    def test_show_with_colon_in_title(self):
+        """Test that a show with a colon in the is correctly sanitized."""
+        show_title = 'American Crime Story: The People v. O.J. Simpson'
+        s = tracker.Show(show_title)
+        self.assertEqual(s.request_title, 'american crime story')
+
 
 class ShowTestCase(unittest.TestCase):
     """Test case for Show object and its methods"""
@@ -169,6 +179,79 @@ class ShowTestCase(unittest.TestCase):
         self.assertIsInstance(show._seasons[0], tracker.Season)
 
 
+class UtilsTestCase(unittest.TestCase):
+    """Test case for utility functions"""
+    def test_sanitize_multi_word_title(self):
+        """Test that we correcly return a lowercase version of the title"""
+        title = 'Game of Thrones'
+        self.assertEqual(
+            utils.sanitize_title(title),
+            'game of thrones',
+        )
+
+    def test_sanitize_with_colon_in_title(self):
+        """Test that we return a title without a colon"""
+        title = 'American Horror Story: Hotel'
+        self.assertEqual(
+            utils.sanitize_title(title),
+            'american horror story',
+        )
+
+    def test_titleize_multi_word_title(self):
+        """Test that we correctly capitalize a multiword title"""
+        title = 'game of thrones'
+        self.assertEqual(
+            utils.titleize(title),
+            'Game of Thrones',
+        )
+
+    def test_split_season_episode_from_string(self):
+        """Test that we correctly extract a season and episode from a string"""
+        s = 'S06E10'
+        self.assertEqual(
+            utils.get_season_episode_from_str(s),
+            (6, 10),
+        )
+
+    def test_split_season_episode_from_string_single_digits(self):
+        """Test that we correctly extract a season and episode from a string"""
+        s = 'S1E3'
+        self.assertEqual(
+            utils.get_season_episode_from_str(s),
+            (1, 3),
+        )
+
+
+class ParseTrackerTestCase(unittest.TestCase):
+    """Test case for functions to parse a tracker file"""
+
+    def setUp(self):
+        line = 'game of thrones s01e10 (finale!)'
+        self.NextEpisode = utils.split_line(line)
+
+    def test_split_line_show_title_correct(self):
+        """Test that the show field of the named tuple is set correctly"""
+        self.assertEqual(self.NextEpisode.show, 'game of thrones')
+
+    def test_split_line_next_episode_correct(self):
+        """Test that the next episode string is returned correctly"""
+        self.assertEqual(self.NextEpisode.next_episode, 's01e10')
+
+    def test_split_line_notes_correct(self):
+        """Test that the notes for the episode are returned correctly"""
+        self.assertEqual(self.NextEpisode.notes, 'finale!')
+
+    def test_split_line_no_notes_present(self):
+        """Test that we set the notes attribute as None if not provided"""
+        line = 'game of thrones s01e10'
+        NextEpisode = utils.split_line(line)
+        self.assertEqual(NextEpisode.notes, None)
+
+    def test_split_line_single_title_show(self):
+        """Test that the show field is set correctly for a single word title"""
+        line = 'house s01e10'
+        NextEpisode = utils.split_line(line)
+        self.assertEqual(NextEpisode.show, 'house')
 
 # class ShowTestCase(unittest.TestCase):
 #     """Test case for Show class and methods"""
@@ -195,71 +278,6 @@ class ShowTestCase(unittest.TestCase):
 #             }
 #         }
 #         self.assertDictEqual(show.to_dict(), expected_dict)
-
-
-def create_good_file():
-    """Create a valid JSON file."""
-    # print('Starting data dump {}'.format(datetime.datetime.now().strftime("%A %B %d, %Y %H:%M:%S")))
-    # datestring = '{}'.format(datetime.datetime.now().strftime("%A %B %d, %Y %H:%M:%S"))
-    sample_tracker = {
-        'last_modified': 'Tuesday June 28, 2016 15:08:11',
-        'shows': {
-            'supernatural': {
-                'next': {
-                    'episode': 22,
-                    'season': 5,
-                    'title': 'Swan Song',
-                    'ratings': {
-                        'imdb': 9.7,
-                        'ign': 9.0,
-                    }
-                },
-                'previous': {
-                    'episode': 21,
-                    'season': 5,
-                    'title': 'Two Minutes to Midnight',
-                    'ratings': {
-                        'imdb': 9.4,
-                        'ign': 9.1,
-                    }
-                },
-                'status': 'season_ended',
-                'short_code': 'spn',
-                'available_on': [
-                    'download',
-                ]
-            },
-            'game_of_thrones': {
-                'next': {
-                    'episode': 9,
-                    'season': 3,
-                    'title': 'The Rains of Castamere',
-                    'ratings': {
-                        'imdb': 9.7,
-                        'ign': 9.9,
-                    }
-                },
-                'previous': {
-                    'episode': 8,
-                    'season': 3,
-                    'title': 'Second Sons',
-                    'ratings': {
-                        'imdb': 8.9,
-                        'ign': 9.0,
-                    }
-                },
-                'status': 'season_ended',
-                'short_code': 'got',
-                'available_on': [
-                    'download',
-                    'sky',
-                ]
-            }
-        }
-    }
-
-    with open('test.json', 'w') as f:
-        json.dump(sample_tracker, f, indent=4, sort_keys=True)
 
 
 if __name__ == '__main__':
