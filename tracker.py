@@ -5,10 +5,18 @@ Utility to keep track of TV shows
 # import argparse
 import json
 # import logging
-import requests
+import os
+import re
 import sys
 
+import requests
+
 # from utils import ToDictMixin, JSONMixin  # TODO: Move these classes
+from exceptions import (
+    SeasonEpisodeParseError,
+    ShowNotFoundError,
+    ShowNotTrackedError,
+)
 from utils import titleize, lunderize, sanitize_title
 
 # TODO: Add command line arguments
@@ -18,9 +26,6 @@ from utils import titleize, lunderize, sanitize_title
 # TODO: Retrieve IGN ratings
 # TODO: Retrieve episode synopsis
 
-# TODO: Move exceptions into another module
-class TrackerError(Exception):
-    pass
 
 # Taken from https://github.com/bslatkin/effectivepython
 class ToDictMixin:
@@ -64,16 +69,6 @@ class JSONMixin:
 
     def to_json(self, indent=4, sort_keys=True):
         return json.dumps(self.to_dict(), indent=indent, sort_keys=sort_keys)
-
-
-class ShowNotTrackedError(TrackerError):
-    pass
-
-class ShowDatabaseError(Exception):
-    pass
-
-class ShowNotFoundError(ShowDatabaseError):
-    pass
 
 
 class Season:
@@ -123,20 +118,57 @@ class Episode:
         self.ratings = {'imdb': rating}
 
 
-class Show:
+class ShowDetails:
+    """Provide basic information about a show.
+
+    Provide access to various title formats and the short_code of
+    a Show.
+    """
+    def __init__(self, title=None, short_code=None):
+        self.title = title
+        self.request_title = sanitize_title(title)
+        self.ltitle = lunderize(title)
+        self.short_code = short_code
+
+
+class TrackedShow(ShowDetails):
+    """Keep track of next and previous episodes of a tracked show.
+
+    Available methods:
+        inc_episode
+    """
+    def __init__(self, title=None, next_episode=None, short_code=None, notes=None):
+        super().__init__(title, short_code)
+        self.next = None
+        self.notes = notes
+        self.previous = None
+        self._next_episode = next_episode
+
+    def _get_season_episode_from_str(self):
+        """Extract a season and episode from a string."""
+        pattern = r'\w{1}(\d{1,2})'*2
+        m = re.search(pattern, self._next_episode)
+
+        if not m:
+            raise SeasonEpisodeParseError
+
+        season = int(m.group(1))
+        episode = int(m.group(2))
+        return season, episode
+
+    def inc_episode(self):
+        raise NotImplementedError
+
+
+class Show(ShowDetails):
     """Represent various details of a show.
 
     Available attributes:
         next
     """
     def __init__(self, title=None, short_code=None):
-        self.title = title
-        self.request_title = sanitize_title(title)
-        self.ltitle = lunderize(title)
+        super().__init__(title, short_code)
         self._seasons = []
-        self.next = None
-        self.previous = None
-        self.short_code = short_code
 
     def request_show_info(self, season=None):
         """Make API request with season information"""
@@ -187,6 +219,25 @@ class ShowDatabase(ToDictMixin, JSONMixin):
         show.populate_seasons()
         self._shows[show.ltitle] = show
 
+    def create_database_from_file(self, path_to_file='./watchlist.txt'):
+        """Create a show database."""
+        tracked_shows = parse_watch_list(path_to_file)
+        for show in tracked_shows:
+            # TODO: Refactor to just pass show to add_show()
+            self.add_show(Show(show))
+
+    def write_database(self, path_to_database=None):
+        """Write a ShowDatabse to disk"""
+        if path_to_database is None:
+            path_to_database = os.path.join(
+                os.path.expanduser('~'),
+                '.showdb'
+            )
+        # TODO: Tidy this up
+        with open(os.path.join(path_to_database, '.showdb.json'), 'w') as f:
+            json.dump(self.to_dict(), f, indent=2, sort_keys=True)
+
+
 # supernatural._seasons[0]._episodes[0].rating['imdb']
 # supernatural.next.
     # def update(self, from_file=True):
@@ -211,22 +262,142 @@ def test_update_database():
     with open('db_test.json', 'w') as f:
         json.dump(show_db.to_dict(), f, indent=2, sort_keys=True)
 
+
+# def create_database_from_file(path_to_file='./watchlist.txt'):
+#     """Create a show database."""
+#     show_db = ShowDatabase()
+#     tracked_shows = parse_watch_list(path_to_file)
+#     for show in tracked_shows:
+#         # TODO: Refactor to just pass show to add_show()
+#         show_db.add_show(Show(show))
+#
+#     return show_db
+
+
+
+
+def create_tracker(path_to_file):
+    """Create a Tracker object."""
+    tracker = Tracker()
+    for show in tracked_shows:
+        tracker.add(
+            TrackedShow(
+                title=show.title,
+                next_episode=show.next_episode,
+                notes=show.notes,
+            )
+        )
+    return tracker
+
+
+def update_tracker_title(tracker, database):
+    """Update the title attribute in the tracker with those from
+    the ShowDatabase.
+    """
+    for show in tracker:
+        show.title = database[show.ltitle]['title']
+
+
+def add_next_prev_episode(tracker, database):
+    """Add the next and previous episodes for the tracked show"""
+    for show in tracker:
+        season, episode = show._get_season_episode_from_str(show._next_episode)
+        season = database[show.ltitle][season-1][episode-1]
+        try:
+            season = database[show.ltitle][season-1]
+        except IndexError:
+            print('Season out of bounds')
+
+        try:
+            episode = season[episode-1]
+        except:
+            episode = x
+
+
+class Database:
+    """Provide base method for different types of databases"""
+    def __init__(self, path_to_database=None):
+        self._path_to_database = path_to_database
+        self.shows = {}
+
+
 class Tracker:
     """Provided methods to read current tracker information.
 
     Available methods:
         next_episode:
     """
-    def __init__(self, path_to_tracker):
-        self.path_to_tracker = path_to_tracker
+    def __init__(self, database=None, path_to_tracker='.tracker.json'):
+        # self._database_exists = False
+        self._tracker_exists = False
+        self._tracker_dir = os.path.join(
+            os.path.expanduser('~'),
+            '.showtracker'
+        )
+        self.path_to_tracker = os.path.join(self._tracker_dir, path_to_tracker)
+        # self.path_to_database = os.path.join(self._tracker_dir, '.showdb.json')
+        self.shows = {}
+        # self.last_modified = None
+
+        # Create a directory for the databases to live
+        try:
+            os.mkdir(self._tracker_dir)
+        except OSError:
+            # print('Directory already exists')
+            pass
+
+        if os.path.exists(self.path_to_tracker):
+            # Perhaps we should do the load in init?
+            self.load_tracker()
+        else:
+            self.create_tracker()
+
+    def create_tracker(self):
+        """Create a tracker if it does not already exist"""
+        raise NotImplementedError
+
+    def load_database(self):
+        """Return an existing database"""
+        if self._database_exists:
+            with open(self.path_to_database, 'r') as db:
+                return json.load(db)
+
+    def load_tracker(self):
+        """Load an existing tracker"""
+        with open(self.path_to_tracker, 'r') as t:
+            self.shows = json.load(t)
+
+    def populate_tracker(self):
+        self.shows
+
+def tracker_main():
+    """Main function for the module"""
+    tracker = Tracker(database)
+    # WARNING: This can only be consumed once!
+    tracked_shows = tracker.get_tracked_shows_from_file()
+    if tracker.database_exists:
+        database = tracker.load_database()
+    else:
+        database = create_database()
+
+    if tracker.tracker_exists:
+        tracker.load_tracker()
+    else:
+        tracker.create_tracker()
+
         # FIXME: I don't like doing a read in init
+        try:
+            with open(self.path_to_database, 'r') as f:
+                self._showdb = json.load(f)
+        except FileNotFoundError:
+            pass
         try:
             with open(self.path_to_tracker, 'r') as f:
                 self.tracker = json.load(f)
         except FileNotFoundError:
             # TODO: Add some logging
             # print('I/O error(errno={0}): {1}'.format(e.errno, e.strerror))
-            raise
+            pass
 
     # TODO: Make this function work for next and previous episode
     def get_episode_details(self, show, verbose=False, which='next'):
@@ -246,7 +417,7 @@ class Tracker:
         else:
             msg = '{} episode for {}: S{:02d} E{:02d}'.format(
                 which.capitalize(),
-                titleise(show.split()),
+                titleize(show.split()),
                 details['season'],
                 details['episode'],
             )
@@ -265,6 +436,8 @@ class Tracker:
 
         # TODO: Validate episodes
 
+    def __iter__(self):
+        return iter(self._shows)
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.path_to_tracker)

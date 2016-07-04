@@ -1,4 +1,4 @@
-import datetime
+# import datetime
 import json
 import unittest
 
@@ -144,13 +144,14 @@ class GoodInitShowTestCase(unittest.TestCase):
         """Test that the _seasons attribute is initially set"""
         self.assertIsInstance(self.show._seasons, list)
 
-    def test_good_next(self):
-        """Test that we set up a next attribute"""
-        self.assertEqual(self.show.next, None)
-
-    def test_good_previous(self):
-        """Test that we set up a previous attribute"""
-        self.assertEqual(self.show.previous, None)
+    # TODO: Move these tests to that of a TrackedShow
+    # def test_good_next(self):
+    #     """Test that we set up a next attribute"""
+    #     self.assertEqual(self.show.next, None)
+    #
+    # def test_good_previous(self):
+    #     """Test that we set up a previous attribute"""
+    #     self.assertEqual(self.show.previous, None)
 
     def test_good_short_code_provided(self):
         """Test that the short code is correctly set"""

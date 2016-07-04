@@ -11,7 +11,7 @@ def sanitize_title(title):
     Returns:
         lowercase version of the title.
     """
-    # Discard everything after the title
+    # Discard everything after the colon
     title = title.split(':')[0]
     title.replace('.', '')
     return title.lower()
@@ -46,49 +46,56 @@ def lunderize(title):
     title = title.replace('.', '')
     return title
 
-def parse_watch_list(path_to_file):
-    """Parses a text file of shows and next episodes.
 
-    File should be in the following format:
-    SHOW SEASONEPISODE [NOTES (if any)]
+class ProcessWatchlist:
+    """Read and process a list of shows being watched"""
+    def __init__(self, path_to_watchlist='./watchlist.txt'):
+        self.path_to_watchlist = path_to_watchlist
 
-    Example:
-    Game of Thrones S06E10 (Download 'Light of the Seven')
+    def __iter__(self):
+        """Parses a text file of shows and next episodes.
 
-    Returns:
-        namedtuple of shows currently being watched
-    """
-    with open(path_to_file, 'r') as f:
-        for line in f:
-            yield split_line(line)
+        File should be in the following format:
+        SHOW SEASONEPISODE [NOTES (if any)]
+
+        Example:
+        Game of Thrones S06E10 (Download 'Light of the Seven')
+
+        Returns:
+            namedtuple of shows currently being watched
+        """
+        with open(self.path_to_watchlist, 'r') as f:
+            for line in f:
+                yield self.split_line(line)
+
+    def split_line(line):
+        """Split an input line into a show, the next episode and notes (if any).
+
+        Expects a line in the following form:
+            Game of Thrones S05E09
+        """
+        notes = None
+        # Optional notes can be added, so split on a bracket or paren
+        line = re.split(r'[\[\(]', line)
+
+        if len(line) > 1:
+            details, notes = line
+            notes = notes[:-1]  # Strip out the trailing bracket or paren
+        else:
+            details = line[0]
+
+        show, next_episode = details.rstrip().rsplit(maxsplit=1)
+
+        NextEpisode = collections.namedtuple(
+            'NextEpisode',
+            ('show', 'next_episode', 'notes')
+        )
+
+        return NextEpisode(show, next_episode, notes)
 
 
-def split_line(line):
-    """Split an input line into a show, the next episode and notes (if any).
-
-    Expects a line in the following form:
-        Game of Thrones S05E09
-    """
-    notes = None
-    # Optional notes can be added, so split on a bracket or paren
-    line = re.split(r'[\[\(]', line)
-
-    if len(line) > 1:
-        details, notes = line
-        notes = notes[:-1]  # Strip out the trailing bracket or paren
-    else:
-        details = line[0]
-
-    show, next_episode = details.rstrip().rsplit(maxsplit=1)
-
-    NextEpisode = collections.namedtuple(
-        'NextEpisode',
-        ('show', 'next_episode', 'notes')
-    )
-
-    return NextEpisode(show, next_episode, notes)
-
-
+# TODO: This function is now a method in the tracker module
+# Move the tests associated with this
 def get_season_episode_from_str(s):
     """Extract a season and episode from a string.
 
