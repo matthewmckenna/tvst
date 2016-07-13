@@ -1,4 +1,5 @@
 import json
+import os
 import unittest
 
 # import requests
@@ -7,6 +8,7 @@ import tracker
 # import utils
 
 
+@unittest.skip('Debugging..')
 class IOShowTestCase(unittest.TestCase):
     """Test real IO in the Show class"""
     def test_request_show_info(self):
@@ -26,7 +28,20 @@ class IOShowTestCase(unittest.TestCase):
             show.populate_seasons()
 
 
-# class IOSho
+class ShowDBTestCase(unittest.TestCase):
+    """Test case for ShowDatabase class"""
+    # def setUp(self):
+    #
+    #     NamedTemporaryFile(dir=os.path.join(userdir, '.showtracker'))
+    def test_create_database(self):
+        # with TemporaryDirectory() as tmpdir:
+            # print('tmpdir={}'.format(tmpdir))
+            # self.assertFalse(True)
+        testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+        show_db = tracker.ShowDatabase(testdir, watchlist='./test_watchlist.txt')
+        # show_db.create_database()
+        # print(show_db._shows)
+        show_db.write_database()
 
 
 if __name__ == '__main__':

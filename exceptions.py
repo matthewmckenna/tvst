@@ -5,6 +5,9 @@ class ShowDatabaseError(Exception):
 class ShowNotFoundError(ShowDatabaseError):
     pass
 
+class FoundFilmError(ShowDatabaseError):
+    pass
+
 
 class TrackerError(Exception):
     pass

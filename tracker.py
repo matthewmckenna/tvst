@@ -3,6 +3,7 @@
 Utility to keep track of TV shows
 """
 # import argparse
+import datetime
 import json
 # import logging
 import os
@@ -16,8 +17,9 @@ from exceptions import (
     SeasonEpisodeParseError,
     ShowNotFoundError,
     ShowNotTrackedError,
+    FoundFilmError,
 )
-from utils import titleize, lunderize, sanitize_title
+from utils import titleize, lunderize, sanitize_title, ProcessWatchlist
 
 # TODO: Add command line arguments
 # TODO: Add logging
@@ -137,7 +139,7 @@ class TrackedShow(ShowDetails):
     Available methods:
         inc_episode
     """
-    def __init__(self, title=None, next_episode=None, short_code=None, notes=None):
+    def __init__(self, title=None, next_episode=None, notes=None, short_code=None):
         super().__init__(title, short_code)
         self.next = None
         self.notes = notes
@@ -193,6 +195,10 @@ class Show(ShowDetails):
         if show_details['Response'] == 'False':
             raise ShowNotFoundError
 
+        # We got a film of the same name
+        if show_details['Type'] == 'movie':
+            raise FoundFilmError
+
         total_seasons = int(show_details['totalSeasons'])
 
         # IO
@@ -211,31 +217,66 @@ class Show(ShowDetails):
         self._seasons.append(s)
 
 
-class ShowDatabase(ToDictMixin, JSONMixin):
-    def __init__(self):
-        self._shows = {}
+class Database(ToDictMixin, JSONMixin):
+    """Provide base method for different types of databases"""
+    def __init__(self, database_dir=None, watchlist=None):
+        if database_dir is None:
+            database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
+        self._database_dir = database_dir
 
-    def add_show(self, show):
-        show.populate_seasons()
-        self._shows[show.ltitle] = show
+        watchlist = './watchlist.txt' if watchlist is None else watchlist
+        self._watchlist = watchlist
 
-    def create_database_from_file(self, path_to_file='./watchlist.txt'):
-        """Create a show database."""
-        tracked_shows = parse_watch_list(path_to_file)
-        for show in tracked_shows:
-            # TODO: Refactor to just pass show to add_show()
-            self.add_show(Show(show))
+        # Create a directory for the databases to live
+        try:
+            os.mkdir(self._database_dir)
+        except OSError:
+            pass  # TODO: Log that the directory already exists
 
-    def write_database(self, path_to_database=None):
+    def load_database(self):
+        """Return an existing database"""
+        with open(self.path_to_database, 'r') as db:
+            database = json.load(db)
+            return database['_shows']
+
+    def write_database(self):
         """Write a ShowDatabse to disk"""
-        if path_to_database is None:
-            path_to_database = os.path.join(
-                os.path.expanduser('~'),
-                '.showdb'
-            )
-        # TODO: Tidy this up
-        with open(os.path.join(path_to_database, '.showdb.json'), 'w') as f:
+        date_format = '%A %B %d, %Y %H:%M:%S'
+        self.last_modified = datetime.datetime.now().strftime(date_format)
+        with open(self.path_to_database, 'w', encoding='utf-8') as f:
             json.dump(self.to_dict(), f, indent=2, sort_keys=True)
+
+
+class ShowDatabase(Database):
+    def __init__(self, database_dir=None, watchlist=None):
+        super().__init__(database_dir, watchlist)
+        self._shows = {}
+        self.path_to_database = os.path.join(self._database_dir, '.showdb.json')
+        self.last_modified = None
+
+        if os.path.exists(self.path_to_database):
+            self._shows = self.load_database()
+        else:
+            self.create_database()
+
+    # TODO: Refactor this method
+    def add_show(self, show):
+        # FIXME: Hidden IO
+        try:
+            show.populate_seasons()
+        except FoundFilmError:
+            # TODO: Handle this properly
+            print('Film found with the same name. Try adding a year with request.')
+        else:
+            self._shows[show.ltitle] = show
+
+    def create_database(self):
+        """Create a show database."""
+        # TODO: Refactor the watchlist out.
+        watchlist = ProcessWatchlist(self._watchlist)
+        for show in watchlist:
+            # TODO: Refactor to just pass show to add_show()
+            self.add_show(Show(show.show))
 
 
 # supernatural._seasons[0]._episodes[0].rating['imdb']
@@ -263,19 +304,6 @@ def test_update_database():
         json.dump(show_db.to_dict(), f, indent=2, sort_keys=True)
 
 
-# def create_database_from_file(path_to_file='./watchlist.txt'):
-#     """Create a show database."""
-#     show_db = ShowDatabase()
-#     tracked_shows = parse_watch_list(path_to_file)
-#     for show in tracked_shows:
-#         # TODO: Refactor to just pass show to add_show()
-#         show_db.add_show(Show(show))
-#
-#     return show_db
-
-
-
-
 def create_tracker(path_to_file):
     """Create a Tracker object."""
     tracker = Tracker()
@@ -298,106 +326,57 @@ def update_tracker_title(tracker, database):
         show.title = database[show.ltitle]['title']
 
 
-def add_next_prev_episode(tracker, database):
-    """Add the next and previous episodes for the tracked show"""
-    for show in tracker:
-        season, episode = show._get_season_episode_from_str(show._next_episode)
-        season = database[show.ltitle][season-1][episode-1]
-        try:
-            season = database[show.ltitle][season-1]
-        except IndexError:
-            print('Season out of bounds')
-
-        try:
-            episode = season[episode-1]
-        except:
-            episode = x
 
 
-class Database:
-    """Provide base method for different types of databases"""
-    def __init__(self, path_to_database=None):
-        self._path_to_database = path_to_database
-        self.shows = {}
 
-
-class Tracker:
+class TrackerDatabase(Database):
     """Provided methods to read current tracker information.
 
     Available methods:
         next_episode:
     """
-    def __init__(self, database=None, path_to_tracker='.tracker.json'):
-        # self._database_exists = False
-        self._tracker_exists = False
-        self._tracker_dir = os.path.join(
-            os.path.expanduser('~'),
-            '.showtracker'
-        )
-        self.path_to_tracker = os.path.join(self._tracker_dir, path_to_tracker)
-        # self.path_to_database = os.path.join(self._tracker_dir, '.showdb.json')
-        self.shows = {}
-        # self.last_modified = None
+    def __init__(self, database_dir=None):
+        super.__init__(database_dir)
+        self.path_to_database = os.path.join(self._database_dir, '.tracker.json')
+        self._shows = {}
 
-        # Create a directory for the databases to live
-        try:
-            os.mkdir(self._tracker_dir)
-        except OSError:
-            # print('Directory already exists')
-            pass
-
-        if os.path.exists(self.path_to_tracker):
+        if os.path.exists(self.path_to_database):
             # Perhaps we should do the load in init?
-            self.load_tracker()
+            self._db = self.load_database()
+            self.construct_tracker()
         else:
             self.create_tracker()
 
     def create_tracker(self):
         """Create a tracker if it does not already exist"""
-        raise NotImplementedError
+        watchlist = ProcessWatchlist(self._watchlist)
+        for show in watchlist:
+            self.add(show)
 
-    def load_database(self):
-        """Return an existing database"""
-        if self._database_exists:
-            with open(self.path_to_database, 'r') as db:
-                return json.load(db)
+    def add(self, show):
+        tracked_show = TrackedShow(
+            title=show.title,
+            next_episode=show.next_episode,
+            notes=show.notes,
+        )
+        self._shows[tracked_show.ltitle] = tracked_show
 
-    def load_tracker(self):
-        """Load an existing tracker"""
-        with open(self.path_to_tracker, 'r') as t:
-            self.shows = json.load(t)
+    def add_next_prev_episode(self, database):
+        """Add the next and previous episodes for the tracked show"""
+        for show in self._shows:
+            season, episode = show._get_season_episode_from_str(show._next_episode)
+            season = database._shows[show.ltitle][season-1][episode-1]
+            database._shows['game_of_thrones']._seasons[1]._episodes[1].title
+            database._shows['game_of_thrones']['_seasons'][1]['_episodes'][1]
+            try:
+                season = database[show.ltitle][season-1]
+            except IndexError:
+                print('Season out of bounds')
 
-    def populate_tracker(self):
-        self.shows
-
-def tracker_main():
-    """Main function for the module"""
-    tracker = Tracker(database)
-    # WARNING: This can only be consumed once!
-    tracked_shows = tracker.get_tracked_shows_from_file()
-    if tracker.database_exists:
-        database = tracker.load_database()
-    else:
-        database = create_database()
-
-    if tracker.tracker_exists:
-        tracker.load_tracker()
-    else:
-        tracker.create_tracker()
-
-        # FIXME: I don't like doing a read in init
-        try:
-            with open(self.path_to_database, 'r') as f:
-                self._showdb = json.load(f)
-        except FileNotFoundError:
-            pass
-        try:
-            with open(self.path_to_tracker, 'r') as f:
-                self.tracker = json.load(f)
-        except FileNotFoundError:
-            # TODO: Add some logging
-            # print('I/O error(errno={0}): {1}'.format(e.errno, e.strerror))
-            pass
+            try:
+                episode = season[episode-1]
+            except:
+                episode = x
 
     # TODO: Make this function work for next and previous episode
     def get_episode_details(self, show, verbose=False, which='next'):
@@ -448,18 +427,13 @@ def process_args():
     pass
 
 
-def testing():
-    """Test function to incrementally build utility."""
-    t = Tracker('sample.json')
-    print(t.next_episode('supernatural'))
-    print(t.next_episode('supernatural', verbose=True))
-    print(t)
-
-
 def main(args):
     """Main entry point for this utility"""
-    # testing()
-    test_update_database()
+    # test_update_database()
+    watchlist = ProcessWatchlist()
+    show_database = ShowDatabase()
+    tracker = TrackerDatabase()
+
 
 
 if __name__ == '__main__':

@@ -1,5 +1,7 @@
 # import datetime
 import json
+import os
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 import unittest
 
 import tracker
@@ -223,12 +225,13 @@ class UtilsTestCase(unittest.TestCase):
         )
 
 
-class ParseTrackerTestCase(unittest.TestCase):
-    """Test case for functions to parse a tracker file"""
+class ProcessWatchlistTestCase(unittest.TestCase):
+    """Test case for the ProcessWatchlist class"""
 
     def setUp(self):
         line = 'game of thrones s01e10 (finale!)'
-        self.NextEpisode = utils.split_line(line)
+        self.watchlist = utils.ProcessWatchlist()
+        self.NextEpisode = self.watchlist.split_line(line)
 
     def test_split_line_show_title_correct(self):
         """Test that the show field of the named tuple is set correctly"""
@@ -245,14 +248,39 @@ class ParseTrackerTestCase(unittest.TestCase):
     def test_split_line_no_notes_present(self):
         """Test that we set the notes attribute as None if not provided"""
         line = 'game of thrones s01e10'
-        NextEpisode = utils.split_line(line)
+        NextEpisode = self.watchlist.split_line(line)
         self.assertEqual(NextEpisode.notes, None)
 
     def test_split_line_single_title_show(self):
         """Test that the show field is set correctly for a single word title"""
         line = 'house s01e10'
-        NextEpisode = utils.split_line(line)
+        NextEpisode = self.watchlist.split_line(line)
         self.assertEqual(NextEpisode.show, 'house')
+
+    def test_read_watchlist_show_titles_from_file(self):
+        """Test that we read multiple show titles from a file"""
+        watchlist = utils.ProcessWatchlist('./test_watchlist.txt')
+        expected_output = ['Game of Thrones', 'Person of Interest']
+        for show, expected in zip(watchlist, expected_output):
+            self.assertEqual(show.show, expected)
+
+    def test_read_watchlist_episode_string_from_file(self):
+        """Test that we read multiple show titles from a file"""
+        watchlist = utils.ProcessWatchlist('./test_watchlist.txt')
+        expected_output = ['S06E10', 'S05E01']
+        for show, expected in zip(watchlist, expected_output):
+            self.assertEqual(show.next_episode, expected)
+
+    def test_read_watchlist_notes_from_file(self):
+        """Test that we read multiple show titles from a file"""
+        watchlist = utils.ProcessWatchlist('./test_watchlist.txt')
+        expected_output = [None, 'new season']
+        for show, expected in zip(watchlist, expected_output):
+            self.assertEqual(show.notes, expected)
+
+
+
+            # print
 
 # class ShowTestCase(unittest.TestCase):
 #     """Test case for Show class and methods"""
