@@ -19,7 +19,16 @@ from exceptions import (
     ShowNotTrackedError,
     FoundFilmError,
 )
-from utils import titleize, lunderize, sanitize_title, ProcessWatchlist
+from utils import (
+    Deserializer,
+    EncodeShow,
+    extract_episode_details,
+    lunderize,
+    ProcessWatchlist,
+    RegisteredSerializable,
+    sanitize_title,
+    titleize,
+)
 
 # TODO: Add command line arguments
 # TODO: Add logging
@@ -29,69 +38,26 @@ from utils import titleize, lunderize, sanitize_title, ProcessWatchlist
 # TODO: Retrieve episode synopsis
 
 
-# Taken from https://github.com/bslatkin/effectivepython
-class ToDictMixin:
-    def to_dict(self):
-        # print('Call _traverse_dict with: {}'.format(self.__dict__))
-        return self._traverse_dict(self.__dict__)
-
-    def _traverse_dict(self, instance_dict):
-        output = {}
-        for key, value in instance_dict.items():
-            # print('key={} value={}'.format(key, value))
-            output[key] = self._traverse(key, value)
-        return output
-
-    def _traverse(self, key, value):
-        # print('In _traverse:')
-        if isinstance(value, ToDictMixin):
-            # print('isinstance ToDictMixin')
-            return value.to_dict()
-        elif isinstance(value, dict):
-            # print('isinstance dict')
-            return self._traverse_dict(value)
-        elif isinstance(value, list):
-            # print('isinstance list')
-            return [self._traverse(key, i) for i in value]
-        elif hasattr(value, '__dict__'):
-            # print('hasattr __dict__')
-            return self._traverse_dict(value.__dict__)
-        else:
-            # print('else return value: {}'.format(value))
-            return value
-
-
-class JSONMixin:
-    @classmethod
-    def from_json(cls, data):
-        # print('cls={} data={}'.format(cls, data))
-        kwargs = json.loads(data)
-        # print('kwargs={}'.format(kwargs))
-        return cls(**kwargs)
-
-    def to_json(self, indent=4, sort_keys=True):
-        return json.dumps(self.to_dict(), indent=indent, sort_keys=sort_keys)
-
-
-class Season:
+class Season(RegisteredSerializable):
     """Represent a season of a TV show"""
-    def __init__(self):
-        self._episodes = []
-        self.episodes_this_season = 0
+    def __init__(self, episodes_this_season=0, _episodes=None):
+        self._episodes = [] if _episodes is None else _episodes
+        self.episodes_this_season = 0 if episodes_this_season is None else len(self._episodes)
 
     def add_episode(self, episode):
         """Add an episode object to self._episodes"""
         self._episodes.append(episode)
 
-    def construct_episode(self, season, episode_details):
-        return Episode(season, episode_details)
+    def construct_episode(self, episode_details):
+        return Episode(**episode_details)
 
     def build_season(self, details):
         """Build a season of episodes"""
         season = int(details['Season'])
         for episode in details['Episodes']:
             # ep = self.construct_episode(season, episode)
-            self.add_episode(self.construct_episode(season, episode))
+            episode_details = extract_episode_details(season, episode)
+            self.add_episode(self.construct_episode(episode_details))
 
         # Update the number of episodes this season
         self.episodes_this_season = len(self._episodes)
@@ -106,21 +72,20 @@ class Season:
         return len(self._episodes)
 
 
-class Episode:
-    def __init__(self, season, episode_details):
-        self.episode = int(episode_details['Episode'])
-        self.title = episode_details['Title']
+class Episode(RegisteredSerializable):
+    def __init__(self, episode, season, title, ratings):
+        self.episode = episode
         self.season = season
-        try:
-            rating = float(episode_details['imdbRating'])
-        except ValueError:
-            # Rating may come through as 'N/A' if episode has not aired
-            rating = None
+        self.title = title
+        self.ratings = ratings
 
-        self.ratings = {'imdb': rating}
+    def __repr__(self):
+        return '< {self.title} (S{self.season:02d}E{self.episode:02d}) >'.format(
+            self=self
+        )
 
 
-class ShowDetails:
+class ShowDetails(RegisteredSerializable):
     """Provide basic information about a show.
 
     Provide access to various title formats and the short_code of
@@ -168,9 +133,9 @@ class Show(ShowDetails):
     Available attributes:
         next
     """
-    def __init__(self, title=None, short_code=None):
+    def __init__(self, title=None, short_code=None, _seasons=None):
         super().__init__(title, short_code)
-        self._seasons = []
+        self._seasons = [] if _seasons is None else _seasons
 
     def request_show_info(self, season=None):
         """Make API request with season information"""
@@ -217,15 +182,18 @@ class Show(ShowDetails):
         self._seasons.append(s)
 
 
-class Database(ToDictMixin, JSONMixin):
+class Database(RegisteredSerializable):
     """Provide base method for different types of databases"""
-    def __init__(self, database_dir=None, watchlist=None):
+    def __init__(self, database_dir=None, watchlist_path=None):
         if database_dir is None:
             database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
         self._database_dir = database_dir
 
-        watchlist = './watchlist.txt' if watchlist is None else watchlist
-        self._watchlist = watchlist
+        watchlist_path = './watchlist.txt' if watchlist_path is None else watchlist_path
+        self._watchlist_path = watchlist_path
+
+        # TODO: Bad idea to do this in the init
+        self.watchlist = self.read_watchlist()
 
         # Create a directory for the databases to live
         try:
@@ -236,15 +204,25 @@ class Database(ToDictMixin, JSONMixin):
     def load_database(self):
         """Return an existing database"""
         with open(self.path_to_database, 'r') as db:
-            database = json.load(db)
-            return database['_shows']
+            deserialized_data = json.load(db)
+
+        deserializer = Deserializer(deserialized_data)
+        database = deserializer.deserialize()
+
+        return database._shows
 
     def write_database(self):
         """Write a ShowDatabse to disk"""
         date_format = '%A %B %d, %Y %H:%M:%S'
         self.last_modified = datetime.datetime.now().strftime(date_format)
+
         with open(self.path_to_database, 'w', encoding='utf-8') as f:
-            json.dump(self.to_dict(), f, indent=2, sort_keys=True)
+            json.dump(self, f, cls=EncodeShow, indent=2, sort_keys=True)
+
+    def read_watchlist(self):
+        try:
+            watchlist = ProcessWatchlist(self._watchlist_path)
+        except WatchlistNotFoundError
 
 
 class ShowDatabase(Database):
@@ -260,23 +238,27 @@ class ShowDatabase(Database):
             self.create_database()
 
     # TODO: Refactor this method
-    def add_show(self, show):
+    def add_show(self, show_title):
+        # TODO
+        show = Show(show_title)
         # FIXME: Hidden IO
         try:
             show.populate_seasons()
         except FoundFilmError:
             # TODO: Handle this properly
+            # Current idea is to go to imdb.com, do a search with request_title
+            # Then scrape the response page for *SHOW* (TV Series).
+            # Extract the IMDB ID and then perform another search on
+            # omdbapi.com with the direct ID
             print('Film found with the same name. Try adding a year with request.')
         else:
             self._shows[show.ltitle] = show
 
     def create_database(self):
         """Create a show database."""
-        # TODO: Refactor the watchlist out.
-        watchlist = ProcessWatchlist(self._watchlist)
-        for show in watchlist:
+        for show in self.watchlist:
             # TODO: Refactor to just pass show to add_show()
-            self.add_show(Show(show.show))
+            self.add_show(show.show_title)
 
 
 # supernatural._seasons[0]._episodes[0].rating['imdb']
@@ -301,7 +283,7 @@ def test_update_database():
         show_db.add_show(Show(show))
 
     with open('db_test.json', 'w') as f:
-        json.dump(show_db.to_dict(), f, indent=2, sort_keys=True)
+        json.dump(show_db, f, cls=EncodeShow, indent=2, sort_keys=True)
 
 
 def create_tracker(path_to_file):
@@ -324,9 +306,6 @@ def update_tracker_title(tracker, database):
     """
     for show in tracker:
         show.title = database[show.ltitle]['title']
-
-
-
 
 
 class TrackerDatabase(Database):
@@ -433,7 +412,6 @@ def main(args):
     watchlist = ProcessWatchlist()
     show_database = ShowDatabase()
     tracker = TrackerDatabase()
-
 
 
 if __name__ == '__main__':

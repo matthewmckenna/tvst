@@ -1,7 +1,8 @@
 import collections
+import json
 import re
 
-from exceptions import SeasonEpisodeParseError
+from exceptions import SeasonEpisodeParseError, WatchlistNotFoundError
 
 
 def sanitize_title(title):
@@ -66,9 +67,12 @@ class ProcessWatchlist:
         Returns:
             namedtuple of shows currently being watched
         """
-        with open(self.path_to_watchlist, 'r') as f:
-            for line in f:
-                yield self.split_line(line.strip())
+        try:
+            with open(self.path_to_watchlist, 'r') as f:
+                for line in f:
+                    yield self.split_line(line.strip())
+        except FileNotFoundError:
+            raise WatchlistNotFoundError
 
     def split_line(self, line):
         """Split an input line into a show, the next episode and notes (if any).
@@ -89,7 +93,7 @@ class ProcessWatchlist:
 
         NextEpisode = collections.namedtuple(
             'NextEpisode',
-            ('show', 'next_episode', 'notes')
+            ('show_title', 'next_episode', 'notes')
         )
 
         return NextEpisode(show, next_episode, notes)
@@ -102,6 +106,9 @@ def get_season_episode_from_str(s):
 
     Usage:
         get_season_episode_from_str('S06E10')
+
+    Returns:
+        an integer tuple of season and episode number
     """
     pattern = r'\w{1}(\d{1,2})'*2
     m = re.search(pattern, s)
@@ -112,6 +119,35 @@ def get_season_episode_from_str(s):
     season = int(m.group(1))
     episode = int(m.group(2))
     return season, episode
+
+
+def extract_episode_details(season, episode_response):
+    """Clean and extract episode details response.
+
+    Take an episode details response and cleans the data.
+    Extract the relevant fields needed to construct an
+    Episode object.
+
+    Args:
+        season: The season number
+        episode_response: An episode_details response
+
+    Returns:
+        episode_details: Dictionary with relevant episode
+            information
+    """
+    try:
+        rating = float(episode_response['imdbRating'])
+    except ValueError:
+        # Rating may come through as 'N/A' if episode has not aired
+        rating = None
+
+    return {
+        'title': episode_response['Title'],
+        'episode': int(episode_response['Episode']),
+        'season': season,
+        'ratings': {'imdb': rating},
+    }
 
 
 class Deserializer:
@@ -177,6 +213,10 @@ class Deserializer:
 registry = {}
 
 
+def register_class(target_class):
+    registry[target_class.__name__] = target_class
+
+
 class Meta(type):
     def __new__(meta, name, bases, class_dict):
         cls = type.__new__(meta, name, bases, class_dict)
@@ -185,8 +225,14 @@ class Meta(type):
 
 
 class RegisteredSerializable(metaclass=Meta):
-    pass
+    @classmethod
+    def load(cls, **kwargs):
+        return cls(**kwargs)
 
 
-def register_class(target_class):
-    registry[target_class.__name__] = target_class
+class EncodeShow(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, tuple(registry.values())):
+            key = '__{}__'.format(obj.__class__.__name__)
+            return {key: obj.__dict__}
+        return json.JSONEncoder.default(self, obj)

@@ -1,12 +1,19 @@
 # import datetime
 import json
-import os
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+# import os
+# from tempfile import NamedTemporaryFile, TemporaryDirectory
 import unittest
 
 import tracker
 import utils
 
+
+# TODO: TrackedShowTestCase
+# TODO: More tests for ShowTestCase
+# TODO: DatabaseTestCase
+# TODO: ShowDatabaseTestCase
+# TODO: TrackerDatabaseTestCase
+# TODO: Separate utils test cases into another test module
 
 # class TrackerTestCase(unittest.TestCase):
 #     """Test case for Tracker class"""
@@ -50,10 +57,11 @@ class GoodEpisodeInitTestCase(unittest.TestCase):
     def setUp(self):
         with open('got_s01_response.json', 'r') as f:
             response = json.load(f)
-        self.episode = tracker.Episode(
+        episode_details = utils.extract_episode_details(
             season=1,
-            episode_details=response['Episodes'][0],
+            episode_response=response['Episodes'][0],
         )
+        self.episode = tracker.Episode(**episode_details)
 
     def test_good_episode_title(self):
         """Test that we build a good episode object with good input data"""
@@ -71,8 +79,9 @@ class GoodEpisodeInitTestCase(unittest.TestCase):
         """Test we build an episode with a good rating"""
         self.assertEqual(self.episode.ratings['imdb'], 8.9)
 
+    @unittest.skip('Not implemented yet')
     def test_bad_episode_title(self):
-        pass
+        raise NotImplementedError
 
 
 class SeasonTestCase(unittest.TestCase):
@@ -81,14 +90,17 @@ class SeasonTestCase(unittest.TestCase):
         with open('got_s01_response.json', 'r') as f:
             self.response = json.load(f)
 
-    def construct_episode(self):
+    def test_construct_episode(self):
         """Test that we correctly construct an episode"""
         s = tracker.Season()
 
-        episode_details = self.response['Episodes'][0]
+        episode_details = utils.extract_episode_details(
+            season=1,
+            episode_response=self.response['Episodes'][0],
+        )
 
         self.assertIsInstance(
-            s.construct_episode(season=1, episode_details=episode_details),
+            s.construct_episode(episode_details),
             tracker.Episode,
         )
 
@@ -96,12 +108,12 @@ class SeasonTestCase(unittest.TestCase):
         """Test that we correctly add an episode."""
         s = tracker.Season()
 
-        episode_details = self.response['Episodes'][0]
-
-        episode = s.construct_episode(
+        episode_details = utils.extract_episode_details(
             season=1,
-            episode_details=episode_details
+            episode_response=self.response['Episodes'][0],
         )
+
+        episode = s.construct_episode(episode_details)
 
         s.add_episode(episode)
 
@@ -126,6 +138,7 @@ class SeasonTestCase(unittest.TestCase):
         self.assertEqual(len(s), 10)
 
 
+# TODO: Move title and short code checks to a ShowDetailsTestCase
 class GoodInitShowTestCase(unittest.TestCase):
     """Test case for Show class"""
     def setUp(self):
@@ -208,6 +221,7 @@ class UtilsTestCase(unittest.TestCase):
             'Game of Thrones',
         )
 
+    # TODO: Remove get_season_episode_from_str
     def test_split_season_episode_from_string(self):
         """Test that we correctly extract a season and episode from a string"""
         s = 'S06E10'
@@ -279,9 +293,6 @@ class ProcessWatchlistTestCase(unittest.TestCase):
             self.assertEqual(show.notes, expected)
 
 
-
-            # print
-
 # class ShowTestCase(unittest.TestCase):
 #     """Test case for Show class and methods"""
 #     def test_to_dict(self):
@@ -310,5 +321,5 @@ class ProcessWatchlistTestCase(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    #create_good_file()
+    # create_good_file()
     unittest.main()

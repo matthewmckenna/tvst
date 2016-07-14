@@ -5,6 +5,11 @@ class ShowDatabaseError(Exception):
 class ShowNotFoundError(ShowDatabaseError):
     pass
 
+
+class WatchlistNotFoundError(ShowDatabaseError):
+    pass
+
+
 class FoundFilmError(ShowDatabaseError):
     pass
 
