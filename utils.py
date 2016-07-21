@@ -2,7 +2,7 @@ import collections
 import json
 import re
 
-from exceptions import SeasonEpisodeParseError, WatchlistNotFoundError
+from exceptions import WatchlistNotFoundError
 
 
 def sanitize_title(title):
@@ -52,7 +52,10 @@ def lunderize(title):
 
 class ProcessWatchlist:
     """Read and process a list of shows being watched"""
-    def __init__(self, path_to_watchlist='./watchlist.txt'):
+    def __init__(self, path_to_watchlist=None):
+        if path_to_watchlist is None:
+            path_to_watchlist = 'watchlist.txt'
+
         self.path_to_watchlist = path_to_watchlist
 
     def __iter__(self):
@@ -99,28 +102,6 @@ class ProcessWatchlist:
         return NextEpisode(show, next_episode, notes)
 
 
-# TODO: This function is now a method in the tracker module
-# Move the tests associated with this
-def get_season_episode_from_str(s):
-    """Extract a season and episode from a string.
-
-    Usage:
-        get_season_episode_from_str('S06E10')
-
-    Returns:
-        an integer tuple of season and episode number
-    """
-    pattern = r'\w{1}(\d{1,2})'*2
-    m = re.search(pattern, s)
-    # TODO: Refactor this out
-    if not m:
-        raise SeasonEpisodeParseError
-
-    season = int(m.group(1))
-    episode = int(m.group(2))
-    return season, episode
-
-
 def extract_episode_details(season, episode_response):
     """Clean and extract episode details response.
 
@@ -148,6 +129,21 @@ def extract_episode_details(season, episode_response):
         'season': season,
         'ratings': {'imdb': rating},
     }
+
+
+def check_season_bounds(next_episode, show_details):
+    """Check that an episode does not exceed the season bounds.
+
+    Args:
+        show_details: Show object with season and episode information.
+            This comes from a ShowDatabase object.
+        season:
+        episode:
+
+    Returns:
+        x
+    """
+    pass
 
 
 class Deserializer:

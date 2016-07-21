@@ -12,14 +12,18 @@ import sys
 
 import requests
 
-# from utils import ToDictMixin, JSONMixin  # TODO: Move these classes
 from exceptions import (
+    DatabaseNotFoundError,
+    EpisodeOutOfBoundsError,
+    FoundFilmError,
     SeasonEpisodeParseError,
+    SeasonOutOfBoundsError,
     ShowNotFoundError,
     ShowNotTrackedError,
-    FoundFilmError,
+    # WatchlistNotFoundError,
 )
 from utils import (
+    check_season_bounds,
     Deserializer,
     EncodeShow,
     extract_episode_details,
@@ -91,7 +95,7 @@ class ShowDetails(RegisteredSerializable):
     Provide access to various title formats and the short_code of
     a Show.
     """
-    def __init__(self, title=None, short_code=None):
+    def __init__(self, title=None, ltitle=None, request_title=None, short_code=None):
         self.title = title
         self.request_title = sanitize_title(title)
         self.ltitle = lunderize(title)
@@ -104,16 +108,31 @@ class TrackedShow(ShowDetails):
     Available methods:
         inc_episode
     """
-    def __init__(self, title=None, next_episode=None, notes=None, short_code=None):
-        super().__init__(title, short_code)
+    def __init__(
+        self,
+        title=None,
+        ltitle=None,
+        request_title=None,
+        next_episode=None,
+        notes=None,
+        short_code=None,
+    ):
+        super().__init__(title, ltitle, request_title, short_code)
         self.next = None
         self.notes = notes
         self.previous = None
         self._next_episode = next_episode
 
+        # TODO: Watch out for first episode of a series, prev should be None
+        # TODO: I need access to the show_db. Probably better to not set up
+        # in init after all
+        # if not (self.next and self.prev):
+        # if not self.next:
+        #     self.set_next_prev()
+
     def _get_season_episode_from_str(self):
         """Extract a season and episode from a string."""
-        pattern = r'\w{1}(\d{1,2})'*2
+        pattern = r'[sS](\d{1,2})[eE](\d{1,2})'
         m = re.search(pattern, self._next_episode)
 
         if not m:
@@ -122,6 +141,21 @@ class TrackedShow(ShowDetails):
         season = int(m.group(1))
         episode = int(m.group(2))
         return season, episode
+
+    def _set_next_prev(self, show_database):
+        """Set up the next and previous episodes of a TrackedShow"""
+        # TODO: Find out the type of show_database[ltitle]._seasons[x-1]._episodes[x-1]
+        # If it is a list or a dict then I would be safer making a copy, as opposed
+        # to just setting a reference
+        print('In _set_next_prev')
+        print('type(show_database)={}'.format(type(show_database)))
+        print('type(show_database._shows[self.ltitle])={}'.format(type(show_database._shows[self.ltitle])))
+        print('type(show_database._shows[self.ltitle]._seasons[season-1])={}'.format(type(show_database._shows[self.ltitle]._seasons[season-1])))
+        print('type(show_database._shows[self.ltitle]._seasons[season-1]._episodes[episode-1])={}'.format(type(show_database._shows[self.ltitle]._seasons[season-1]._episodes[episode-1])))
+        print('')
+        # self.next = show_database._shows[self.ltitle]._seasons[season-1]._episodes[episode-1]
+
+
 
     def inc_episode(self):
         raise NotImplementedError
@@ -133,8 +167,15 @@ class Show(ShowDetails):
     Available attributes:
         next
     """
-    def __init__(self, title=None, short_code=None, _seasons=None):
-        super().__init__(title, short_code)
+    def __init__(
+        self,
+        title=None,
+        ltitle=None,
+        request_title=None,
+        short_code=None,
+        _seasons=None
+    ):
+        super().__init__(title, ltitle, request_title, short_code)
         self._seasons = [] if _seasons is None else _seasons
 
     def request_show_info(self, season=None):
@@ -187,54 +228,63 @@ class Database(RegisteredSerializable):
     def __init__(self, database_dir=None, watchlist_path=None):
         if database_dir is None:
             database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
-        self._database_dir = database_dir
+        self.database_dir = database_dir
 
-        watchlist_path = './watchlist.txt' if watchlist_path is None else watchlist_path
-        self._watchlist_path = watchlist_path
+        self.watchlist_path = watchlist_path
 
         # TODO: Bad idea to do this in the init
-        self.watchlist = self.read_watchlist()
+        # self.watchlist = self.read_watchlist()
+        # print(type(self.watchlist))
 
         # Create a directory for the databases to live
         try:
-            os.mkdir(self._database_dir)
+            os.mkdir(self.database_dir)
         except OSError:
             pass  # TODO: Log that the directory already exists
 
-    def load_database(self):
-        """Return an existing database"""
-        with open(self.path_to_database, 'r') as db:
-            deserialized_data = json.load(db)
-
-        deserializer = Deserializer(deserialized_data)
-        database = deserializer.deserialize()
-
-        return database._shows
-
     def write_database(self):
-        """Write a ShowDatabse to disk"""
+        """Write a ShowDatabase to disk"""
         date_format = '%A %B %d, %Y %H:%M:%S'
         self.last_modified = datetime.datetime.now().strftime(date_format)
 
         with open(self.path_to_database, 'w', encoding='utf-8') as f:
-            json.dump(self, f, cls=EncodeShow, indent=2, sort_keys=True)
+            # json.dump(self, f, cls=EncodeShow, indent=2, sort_keys=True)
+            json.dump(self, f, cls=EncodeShow, sort_keys=True)
 
     def read_watchlist(self):
-        try:
-            watchlist = ProcessWatchlist(self._watchlist_path)
-        except WatchlistNotFoundError
+        """Read and process a watchlist.
+
+        Read a watchlist and split into show_title, next_episode
+        and any notes associated.
+
+        Returns:
+            a ProcessWatchlist instance which is an iterator
+
+        Raises:
+            WatchlistNotFoundError if a watchlist does not exist
+        """
+        return ProcessWatchlist(self._watchlist_path)
 
 
 class ShowDatabase(Database):
-    def __init__(self, database_dir=None, watchlist=None):
-        super().__init__(database_dir, watchlist)
-        self._shows = {}
-        self.path_to_database = os.path.join(self._database_dir, '.showdb.json')
-        self.last_modified = None
+    def __init__(
+        self,
+        database_dir=None,
+        path_to_database=None,
+        watchlist_path=None,
+        _shows=None,
+        last_modified=None,
+    ):
+        super().__init__(database_dir, watchlist_path)
+        self._shows = {} if _shows is None else _shows
+        self.last_modified = last_modified
 
-        if os.path.exists(self.path_to_database):
-            self._shows = self.load_database()
-        else:
+        if path_to_database is None:
+            path_to_database = os.path.join(self.database_dir, '.showdb.json')
+
+        self.path_to_database = path_to_database
+
+        if not os.path.exists(self.path_to_database):
             self.create_database()
 
     # TODO: Refactor this method
@@ -256,22 +306,50 @@ class ShowDatabase(Database):
 
     def create_database(self):
         """Create a show database."""
-        for show in self.watchlist:
+        watchlist = ProcessWatchlist(self.watchlist_path)
+        for show in watchlist:
             # TODO: Refactor to just pass show to add_show()
             self.add_show(show.show_title)
 
 
-# supernatural._seasons[0]._episodes[0].rating['imdb']
-# supernatural.next.
-    # def update(self, from_file=True):
-    #     if from_file:
-    #         self.next['season'], self.next['episode'] = show_update()
+def load_database(path_to_database):
+    """Return an existing database"""
+    try:
+        with open(path_to_database, 'r') as db:
+            deserialized_data = json.load(db)
+    except FileNotFoundError:
+        raise DatabaseNotFoundError
+    else:
+        deserializer = Deserializer(deserialized_data)
+        database = deserializer.deserialize()
+
+    return database
 
 
-# read next_episode.txt
-# compile a list of shows
-# for show in shows: show should be lunderised
-# init
+def update_database():
+    """Update an existing ShowDatabase.
+    """
+    # TODO: Locate the database
+
+    # TODO: Rename the database
+
+    # TODO: Get list of existing shows in database
+
+    # TODO: Read watchlist
+
+    # TODO: Combine two lists of shows
+
+    # TODO: Create database
+
+    # TODO: Test database is valid
+
+    # TODO: Write database, and exit
+
+
+# def update(self, from_file=True):
+#     if from_file:
+#         self.next['season'], self.next['episode'] = show_update()
+
 
 # game_of_thrones = Show('Game of Thrones')
 # query = 'game of thrones'
@@ -288,7 +366,7 @@ def test_update_database():
 
 def create_tracker(path_to_file):
     """Create a Tracker object."""
-    tracker = Tracker()
+    tracker = TrackerDatabase()
     for show in tracked_shows:
         tracker.add(
             TrackedShow(
@@ -340,22 +418,35 @@ class TrackerDatabase(Database):
         )
         self._shows[tracked_show.ltitle] = tracked_show
 
-    def add_next_prev_episode(self, database):
+    def _add_next_prev_episode(self, database):
         """Add the next and previous episodes for the tracked show"""
         for show in self._shows:
-            season, episode = show._get_season_episode_from_str(show._next_episode)
-            season = database._shows[show.ltitle][season-1][episode-1]
-            database._shows['game_of_thrones']._seasons[1]._episodes[1].title
-            database._shows['game_of_thrones']['_seasons'][1]['_episodes'][1]
-            try:
-                season = database[show.ltitle][season-1]
-            except IndexError:
-                print('Season out of bounds')
+            season, episode = show._get_season_episode_from_str()
 
             try:
-                episode = season[episode-1]
-            except:
-                episode = x
+                show_db = database._shows[show.ltitle]
+            except IndexError:
+                raise ShowNotFoundError
+
+            if not check_season_bounds(season, episode):
+                raise
+
+            try:
+                season = show_db._seasons[season-1]
+            except IndexError:
+                raise SeasonOutOfBoundsError
+
+            try:
+                episode = season._episodes[episode-1]
+            except IndexError:
+                raise EpisodeOutOfBoundsError
+            else:
+                show._set_next_prev(database)
+
+            # season = database._shows[show.ltitle][season-1][episode-1]
+            # database._shows['game_of_thrones']._seasons[1]._episodes[1].title
+            # database._shows['game_of_thrones']['_seasons'][1]['_episodes'][1]
+
 
     # TODO: Make this function work for next and previous episode
     def get_episode_details(self, show, verbose=False, which='next'):

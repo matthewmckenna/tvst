@@ -8,7 +8,7 @@ import tracker
 # import utils
 
 
-@unittest.skip('Debugging..')
+@unittest.skip
 class IOShowTestCase(unittest.TestCase):
     """Test real IO in the Show class"""
     def test_request_show_info(self):
@@ -27,21 +27,47 @@ class IOShowTestCase(unittest.TestCase):
         with self.assertRaises(tracker.ShowNotFoundError):
             show.populate_seasons()
 
+    def test_got_film_with_same_name(self):
+        """Test that we recognise when we get a film instead of a show"""
+        show = tracker.Show(title='Fargo')
+        with self.assertRaises(tracker.FoundFilmError):
+            show.populate_seasons()
 
+
+# @unittest.skip
 class ShowDBTestCase(unittest.TestCase):
     """Test case for ShowDatabase class"""
-    # def setUp(self):
-    #
-    #     NamedTemporaryFile(dir=os.path.join(userdir, '.showtracker'))
+    def setUp(self):
+        self.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+
+    @unittest.skip
     def test_create_database(self):
-        # with TemporaryDirectory() as tmpdir:
-            # print('tmpdir={}'.format(tmpdir))
-            # self.assertFalse(True)
-        testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
-        show_db = tracker.ShowDatabase(testdir, watchlist='./test_watchlist.txt')
-        # show_db.create_database()
-        # print(show_db._shows)
+        """Test database is correctly created as a Database instance"""
+        show_db = tracker.ShowDatabase(self.testdir, watchlist_path='test_watchlist.txt')
+        # show_db.write_database()
+        self.assertIsInstance(show_db, tracker.Database)
+
+    # @unittest.skip
+    def test_write_database(self):
+        """Test database is correctly written to disk"""
+        show_db = tracker.ShowDatabase(self.testdir, watchlist_path='test_watchlist.txt')
         show_db.write_database()
+
+        self.assertTrue(os.path.exists(show_db.path_to_database))
+
+    @unittest.skip
+    def test_load_database(self):
+        """Test that we correctly build objects when loading from file"""
+        show_db = tracker.load_database(os.path.join(self.testdir, '.showdb.json'))
+
+        self.assertEqual(
+            show_db._shows['game_of_thrones']._seasons[5]._episodes[9].title,
+            'The Winds of Winter'
+        )
+
+    # def tearDown(self):
+    #     os.remove(os.path.join(self.testdir, '.showdb.json'))
+    #     # os.rmdir(os.path.join(self.testdir))
 
 
 if __name__ == '__main__':
