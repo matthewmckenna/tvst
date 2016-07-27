@@ -8,7 +8,6 @@ import tracker
 # import utils
 
 
-@unittest.skip
 class IOShowTestCase(unittest.TestCase):
     """Test real IO in the Show class"""
     def test_request_show_info(self):
@@ -34,28 +33,52 @@ class IOShowTestCase(unittest.TestCase):
             show.populate_seasons()
 
 
-# @unittest.skip
 class ShowDBTestCase(unittest.TestCase):
     """Test case for ShowDatabase class"""
-    def setUp(self):
-        self.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+    @classmethod
+    def setUpClass(cls):
+        cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+        cls.show_db = tracker.ShowDatabase(cls.testdir, watchlist_path='test_watchlist.txt')
 
-    @unittest.skip
     def test_create_database(self):
         """Test database is correctly created as a Database instance"""
-        show_db = tracker.ShowDatabase(self.testdir, watchlist_path='test_watchlist.txt')
-        # show_db.write_database()
-        self.assertIsInstance(show_db, tracker.Database)
+        self.assertIsInstance(self.show_db, tracker.ShowDatabase)
 
-    # @unittest.skip
     def test_write_database(self):
         """Test database is correctly written to disk"""
-        show_db = tracker.ShowDatabase(self.testdir, watchlist_path='test_watchlist.txt')
-        show_db.write_database()
+        self.show_db.write_database()
+        self.assertTrue(os.path.exists(self.show_db.path_to_database))
 
-        self.assertTrue(os.path.exists(show_db.path_to_database))
+    def test_get_show_db_entry_show_present(self):
+        """Check that we correctly return a TrackedShow instance"""
+        entry = tracker.get_show_database_entry(self.show_db, 'game_of_thrones')
+        self.assertIsInstance(entry, tracker.Show)
 
-    @unittest.skip
+    def test_get_show_db_entry_show_not_present(self):
+        """Check that we raise a ShowNotFoundError if the show is not in the db"""
+        with self.assertRaises(tracker.ShowNotFoundError):
+            tracker.get_show_database_entry(
+                self.show_db,
+                'mr_robot'
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        os.remove(os.path.join(cls.testdir, '.showdb.json'))
+        os.rmdir(cls.testdir)
+
+
+class ShowDBLoadTestCase(unittest.TestCase):
+    """Test case for loading from a saved ShowDatabase"""
+    @classmethod
+    def setUpClass(cls):
+        cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+        # Protect against a .showdb file already existing in this directory
+        if os.path.exists(os.path.join(cls.testdir, '.showdb.json')):
+            os.remove(os.path.join(cls.testdir, '.showdb.json'))
+        db = tracker.ShowDatabase(cls.testdir, watchlist_path='test_watchlist.txt')
+        db.write_database()
+
     def test_load_database(self):
         """Test that we correctly build objects when loading from file"""
         show_db = tracker.load_database(os.path.join(self.testdir, '.showdb.json'))
@@ -65,9 +88,10 @@ class ShowDBTestCase(unittest.TestCase):
             'The Winds of Winter'
         )
 
-    # def tearDown(self):
-    #     os.remove(os.path.join(self.testdir, '.showdb.json'))
-    #     # os.rmdir(os.path.join(self.testdir))
+    @classmethod
+    def tearDownClass(cls):
+        os.remove(os.path.join(cls.testdir, '.showdb.json'))
+        os.rmdir(cls.testdir)
 
 
 if __name__ == '__main__':

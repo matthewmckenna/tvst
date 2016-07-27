@@ -2,7 +2,7 @@ import collections
 import json
 import re
 
-from exceptions import WatchlistNotFoundError
+from exceptions import ShowNotFoundError, WatchlistNotFoundError
 
 
 def sanitize_title(title):
@@ -129,6 +129,26 @@ def extract_episode_details(season, episode_response):
         'season': season,
         'ratings': {'imdb': rating},
     }
+
+
+def get_show_database_entry(show_database, title):
+    """Get an entry in *show_database* for *title*.
+
+    Args:
+        show_database: A ShowDatabase instance.
+        title: The lookup key for the show being searched for.
+
+    Returns:
+        A Show instance for show stored under *title*.
+
+    Raises:
+        ShowNotFoundError: Show not found in the passed in
+            database.
+    """
+    try:
+        return show_database._shows[title]
+    except KeyError:
+        raise ShowNotFoundError
 
 
 def check_season_bounds(next_episode, show_details):

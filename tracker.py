@@ -1,4 +1,4 @@
-#!/usr/env/python
+#!/usr/env/bin python
 """
 Utility to keep track of TV shows
 """
@@ -16,6 +16,7 @@ from exceptions import (
     DatabaseNotFoundError,
     EpisodeOutOfBoundsError,
     FoundFilmError,
+    OutOfBoundsError,
     SeasonEpisodeParseError,
     SeasonOutOfBoundsError,
     ShowNotFoundError,
@@ -23,10 +24,10 @@ from exceptions import (
     # WatchlistNotFoundError,
 )
 from utils import (
-    check_season_bounds,
     Deserializer,
     EncodeShow,
     extract_episode_details,
+    get_show_database_entry,
     lunderize,
     ProcessWatchlist,
     RegisteredSerializable,
@@ -113,22 +114,15 @@ class TrackedShow(ShowDetails):
         title=None,
         ltitle=None,
         request_title=None,
-        next_episode=None,
+        _next_episode=None,
         notes=None,
         short_code=None,
     ):
         super().__init__(title, ltitle, request_title, short_code)
         self.next = None
         self.notes = notes
-        self.previous = None
-        self._next_episode = next_episode
-
-        # TODO: Watch out for first episode of a series, prev should be None
-        # TODO: I need access to the show_db. Probably better to not set up
-        # in init after all
-        # if not (self.next and self.prev):
-        # if not self.next:
-        #     self.set_next_prev()
+        self.prev = None
+        self._next_episode = _next_episode
 
     def _get_season_episode_from_str(self):
         """Extract a season and episode from a string."""
@@ -144,21 +138,138 @@ class TrackedShow(ShowDetails):
 
     def _set_next_prev(self, show_database):
         """Set up the next and previous episodes of a TrackedShow"""
-        # TODO: Find out the type of show_database[ltitle]._seasons[x-1]._episodes[x-1]
-        # If it is a list or a dict then I would be safer making a copy, as opposed
-        # to just setting a reference
-        print('In _set_next_prev')
-        print('type(show_database)={}'.format(type(show_database)))
-        print('type(show_database._shows[self.ltitle])={}'.format(type(show_database._shows[self.ltitle])))
-        print('type(show_database._shows[self.ltitle]._seasons[season-1])={}'.format(type(show_database._shows[self.ltitle]._seasons[season-1])))
-        print('type(show_database._shows[self.ltitle]._seasons[season-1]._episodes[episode-1])={}'.format(type(show_database._shows[self.ltitle]._seasons[season-1]._episodes[episode-1])))
-        print('')
-        # self.next = show_database._shows[self.ltitle]._seasons[season-1]._episodes[episode-1]
 
+        show_db = get_show_database_entry(show_database, title=self.ltitle)
 
+        season, episode = self._get_season_episode_from_str()
+        # Account for zero-indexing.
+        # The first season or first episode will should be referenced as
+        # episode zero.
+        season, episode = season-1, episode-1
 
-    def inc_episode(self):
-        raise NotImplementedError
+        self._validate_season_episode(show_db, season, episode)
+
+        self.next = show_db._seasons[season]._episodes[episode]
+
+        if season == 0 and episode == 0:
+            return
+        elif episode == 0:
+            season -= 1
+            episode = show_db._seasons[season].episodes_this_season - 1
+        else:
+            episode -= 1
+
+        self.prev = show_db._seasons[season]._episodes[episode]
+
+    def inc_dec_episode(self, show_database, inc=False, dec=False):
+        """x"""
+        if inc and dec:
+            return
+
+        if not (inc and dec):
+            return
+
+        # May raise a ShowNotFoundError
+        show_db = get_show_database_entry(show_database, title=self.ltitle)
+
+        season, episode = self._adjust_season_episode(inc, dec)
+
+    def _adjust_season_episode(self, inc, dec):
+        """Return a zero-index adjusted season and episode"""
+        if inc:
+            return self.next.season-1, self.next.episode-1
+        elif dec:
+            try:
+                season, episode = self.prev.season-1, self.prev.episode-1
+            except AttributeError:
+                # self.prev is None, meaning we are dealing with the first
+                # episode of a show (S01E01).
+                season, episode = 0, 0
+
+            return season, episode
+
+    def _validate_season_episode(self, show_db, season, episode):
+        """Check that the season and episode passed are valid."""
+
+        try:
+            season = show_db._seasons[season]
+        except IndexError:
+            raise SeasonOutOfBoundsError
+
+        try:
+            episode = season._episodes[episode]
+        except IndexError:
+            raise EpisodeOutOfBoundsError
+
+    def inc_episode(self, show_database, by=1):
+        """Advance the next episode for a tracked show.
+
+        Args:
+            show_database: a ShowDatabase
+            by: How many episodes to increment from the current
+                episode. Default is to advance by one episode.
+
+        Raises:
+            ShowNotFoundError
+            SeasonOutOfBoundsError
+            EpisodeOutOfBoundsError
+        """
+        # May raise a ShowNotFoundError
+        show_db = get_show_database_entry(show_database, title=self.ltitle)
+
+        season, episode = self.next.season-1, self.next.episode-1
+
+        for inc in range(by):
+            # Check if the current ('old') next_episode is the season finale
+            # If so, the 'new' next_episode will be the next season premiere.
+            if self.next.episode == show_db._seasons[season].episodes_this_season:
+                season += 1
+                episode = 0
+            else:
+                episode += 1
+
+            self._validate_season_episode(show_db, season, episode)
+
+            self.prev = self.next
+            self.next = show_db._seasons[season]._episodes[episode]
+
+    def dec_episode(self, show_database, by=1):
+        """Decrement the next episode for a tracked show.
+
+        Args:
+            show_database: a ShowDatabase
+            by: How many episodes to decrement from the current
+                episode. Default is to decrement by one episode.
+
+        Raises:
+            ShowNotFoundError
+            SeasonOutOfBoundsError
+            EpisodeOutOfBoundsError
+        """
+        show_db = get_show_database_entry(show_database, title=self.ltitle)
+
+        try:
+            season, episode = self.prev.season-1, self.prev.episode-1
+        except AttributeError:
+            # self.prev is None
+            season, episode = 0, 0
+
+        for dec in range(by):
+            if season == 0 and episode == 0:
+                self.next = show_db._seasons[season]._episodes[episode]
+                break  # TODO: Perhaps raise something
+            # Decrement over a season boundary, for season > 0.
+            # Set the episode to the finale of the previous season
+            elif episode == 0:
+                season -= 1
+                episode = show_db._seasons[season].episodes_this_season-1
+            else:
+                episode -= 1
+
+            self._validate_season_episode(show_db, season, episode)
+
+            self.next = self.prev
+            self.prev = show_db._seasons[season]._episodes[episode]
 
 
 class Show(ShowDetails):
@@ -225,16 +336,32 @@ class Show(ShowDetails):
 
 class Database(RegisteredSerializable):
     """Provide base method for different types of databases"""
-    def __init__(self, database_dir=None, watchlist_path=None):
+    def __init__(
+        self,
+        database_dir=None,
+        watchlist_path=None,
+        _shows=None,
+        last_modified=None,
+    ):
         if database_dir is None:
             database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
         self.database_dir = database_dir
 
         self.watchlist_path = watchlist_path
 
-        # TODO: Bad idea to do this in the init
-        # self.watchlist = self.read_watchlist()
-        # print(type(self.watchlist))
+        self._shows = {} if _shows is None else _shows
+        self.last_modified = last_modified
+
+    def create_database(self):
+        """Create a show database."""
+        watchlist = ProcessWatchlist(self.watchlist_path)
+        for show in watchlist:
+            self.add_show(show)
+
+    def write_database(self, indent=None):
+        """Write a ShowDatabase to disk"""
+        date_format = '%A %B %d, %Y %H:%M:%S'
+        self.last_modified = datetime.datetime.now().strftime(date_format)
 
         # Create a directory for the databases to live
         try:
@@ -242,14 +369,8 @@ class Database(RegisteredSerializable):
         except OSError:
             pass  # TODO: Log that the directory already exists
 
-    def write_database(self):
-        """Write a ShowDatabase to disk"""
-        date_format = '%A %B %d, %Y %H:%M:%S'
-        self.last_modified = datetime.datetime.now().strftime(date_format)
-
         with open(self.path_to_database, 'w', encoding='utf-8') as f:
-            # json.dump(self, f, cls=EncodeShow, indent=2, sort_keys=True)
-            json.dump(self, f, cls=EncodeShow, sort_keys=True)
+            json.dump(self, f, cls=EncodeShow, indent=indent, sort_keys=True)
 
     def read_watchlist(self):
         """Read and process a watchlist.
@@ -275,9 +396,7 @@ class ShowDatabase(Database):
         _shows=None,
         last_modified=None,
     ):
-        super().__init__(database_dir, watchlist_path)
-        self._shows = {} if _shows is None else _shows
-        self.last_modified = last_modified
+        super().__init__(database_dir, watchlist_path, _shows, last_modified)
 
         if path_to_database is None:
             path_to_database = os.path.join(self.database_dir, '.showdb.json')
@@ -287,10 +406,9 @@ class ShowDatabase(Database):
         if not os.path.exists(self.path_to_database):
             self.create_database()
 
-    # TODO: Refactor this method
-    def add_show(self, show_title):
-        # TODO
-        show = Show(show_title)
+    def add_show(self, show_details):
+        title = show_details.show_title
+        show = Show(title)
         # FIXME: Hidden IO
         try:
             show.populate_seasons()
@@ -303,13 +421,6 @@ class ShowDatabase(Database):
             print('Film found with the same name. Try adding a year with request.')
         else:
             self._shows[show.ltitle] = show
-
-    def create_database(self):
-        """Create a show database."""
-        watchlist = ProcessWatchlist(self.watchlist_path)
-        for show in watchlist:
-            # TODO: Refactor to just pass show to add_show()
-            self.add_show(show.show_title)
 
 
 def load_database(path_to_database):
@@ -392,61 +503,48 @@ class TrackerDatabase(Database):
     Available methods:
         next_episode:
     """
-    def __init__(self, database_dir=None):
-        super.__init__(database_dir)
-        self.path_to_database = os.path.join(self._database_dir, '.tracker.json')
-        self._shows = {}
+    def __init__(
+        self,
+        database_dir=None,
+        path_to_tracker=None,
+        path_to_show_db=None,
+        watchlist_path=None,
+        _shows=None,
+        last_modified=None,
+    ):
+        super().__init__(database_dir, watchlist_path, _shows, last_modified)
 
-        if os.path.exists(self.path_to_database):
-            # Perhaps we should do the load in init?
-            self._db = self.load_database()
-            self.construct_tracker()
-        else:
-            self.create_tracker()
+        if path_to_tracker is None:
+            path_to_tracker = os.path.join(self.database_dir, '.tracker.json')
 
-    def create_tracker(self):
-        """Create a tracker if it does not already exist"""
-        watchlist = ProcessWatchlist(self._watchlist)
-        for show in watchlist:
-            self.add(show)
+        self.path_to_tracker = path_to_tracker
 
-    def add(self, show):
-        tracked_show = TrackedShow(
-            title=show.title,
-            next_episode=show.next_episode,
-            notes=show.notes,
+        if path_to_show_db is None:
+            path_to_show_db = os.path.join(self.database_dir, '.showdb.json')
+
+        self.path_to_show_db = path_to_show_db
+
+        if not os.path.exists(self.path_to_tracker):
+            self.create_database()
+            show_db = load_database(self.path_to_show_db)
+            self._add_next_prev_episode(show_db)
+
+    def add_show(self, show_details):
+        print('Tracker: add_show()')
+        show = TrackedShow(
+            title=show_details.show_title,
+            _next_episode=show_details.next_episode,
+            notes=show_details.notes,
         )
-        self._shows[tracked_show.ltitle] = tracked_show
+        self._shows[show.ltitle] = show
 
     def _add_next_prev_episode(self, database):
         """Add the next and previous episodes for the tracked show"""
-        for show in self._shows:
-            season, episode = show._get_season_episode_from_str()
-
+        for show in self._shows.values():
             try:
-                show_db = database._shows[show.ltitle]
-            except IndexError:
-                raise ShowNotFoundError
-
-            if not check_season_bounds(season, episode):
-                raise
-
-            try:
-                season = show_db._seasons[season-1]
-            except IndexError:
-                raise SeasonOutOfBoundsError
-
-            try:
-                episode = season._episodes[episode-1]
-            except IndexError:
-                raise EpisodeOutOfBoundsError
-            else:
                 show._set_next_prev(database)
-
-            # season = database._shows[show.ltitle][season-1][episode-1]
-            # database._shows['game_of_thrones']._seasons[1]._episodes[1].title
-            # database._shows['game_of_thrones']['_seasons'][1]['_episodes'][1]
-
+            except OutOfBoundsError:
+                pass  # TODO: Add proper handling
 
     # TODO: Make this function work for next and previous episode
     def get_episode_details(self, show, verbose=False, which='next'):
@@ -500,9 +598,9 @@ def process_args():
 def main(args):
     """Main entry point for this utility"""
     # test_update_database()
-    watchlist = ProcessWatchlist()
-    show_database = ShowDatabase()
-    tracker = TrackerDatabase()
+    # watchlist = ProcessWatchlist()
+    # show_database = ShowDatabase()
+    # tracker = TrackerDatabase()
 
 
 if __name__ == '__main__':

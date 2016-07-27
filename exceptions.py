@@ -6,14 +6,6 @@ class ShowNotFoundError(ShowDatabaseError):
     pass
 
 
-class EpisodeOutOfBoundsError(ShowDatabaseError):
-    pass
-
-
-class SeasonOutOfBoundsError(ShowDatabaseError):
-    pass
-
-
 class WatchlistNotFoundError(ShowDatabaseError):
     pass
 
@@ -35,4 +27,16 @@ class ShowNotTrackedError(TrackerError):
 
 
 class SeasonEpisodeParseError(TrackerError):
+    pass
+
+
+class OutOfBoundsError(TrackerError):
+    pass
+
+
+class EpisodeOutOfBoundsError(OutOfBoundsError):
+    pass
+
+
+class SeasonOutOfBoundsError(OutOfBoundsError):
     pass
