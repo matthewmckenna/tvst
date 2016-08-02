@@ -40,3 +40,7 @@ class EpisodeOutOfBoundsError(OutOfBoundsError):
 
 class SeasonOutOfBoundsError(OutOfBoundsError):
     pass
+
+
+class InvalidOperationError(Exception):
+    pass

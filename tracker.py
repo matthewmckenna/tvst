@@ -2,7 +2,7 @@
 """
 Utility to keep track of TV shows
 """
-# import argparse
+import argparse
 import datetime
 import json
 # import logging
@@ -16,6 +16,7 @@ from exceptions import (
     DatabaseNotFoundError,
     EpisodeOutOfBoundsError,
     FoundFilmError,
+    InvalidOperationError,
     OutOfBoundsError,
     SeasonEpisodeParseError,
     SeasonOutOfBoundsError,
@@ -37,8 +38,6 @@ from utils import (
 
 # TODO: Add command line arguments
 # TODO: Add logging
-# TODO: Should a show be an object?
-# TODO: Retrieve IMDB ratings
 # TODO: Retrieve IGN ratings
 # TODO: Retrieve episode synopsis
 
@@ -164,7 +163,7 @@ class TrackedShow(ShowDetails):
     def inc_dec_episode(self, show_database, inc=False, dec=False):
         """x"""
         if inc and dec:
-            return
+            raise InvalidOperationError
 
         if not (inc and dec):
             return
@@ -592,7 +591,117 @@ class TrackerDatabase(Database):
 
 def process_args():
     """Process command line arguments."""
-    pass
+
+# $ tracker.py <show> inc
+# $ tracker.py <show> dec
+# $ tracker.py <show> next
+# $ tracker.py <show> note=<note>
+# $ tracker.py <show> short_code=<short_code>
+# $ tracker.py <show> ratings
+
+# $ tracker.py add <show>
+#  - add a new, untracked show to the tracker
+# $ tracker.py add <path_to_watchlist>
+
+    parser = argparse.ArgumentParser(
+        description='Utility to facilitate the tracking of TV shows',
+        prefix_chars='-+',
+        # add_help=False,
+    )
+
+    # parser.add_argument(
+    #     '-s',
+    #     '--show',
+    #     help='title of show',
+    #     nargs='*',
+    # )
+
+    show_kwargs = {
+        'help': 'title of show',
+        # 'nargs': '*',
+
+    }
+
+    # parser.add_argument(
+    #     # 's',
+    #     'show',
+    #     help='title of show',
+    #     # nargs='*',
+    # )
+
+    # parser.add_argument(
+    #     '--inc',
+    #     help='increment an episode',
+    #     # type=int,
+    #     action='store_const',
+    #     const=1,
+    #     # default=1,
+    # )
+    # parser.add_argument(
+    #     '--dec',
+    #     help='decrement an episode',
+    #     # type=int,
+    #     action='store_const',
+    #     const=1,
+    #     # default=1,
+    # )
+    def add(args):
+        if args.note:
+            print('add note={} to show={}'.format(args.note, args.show))
+        if args.short_code:
+            print('add short_code={} to show={}'.format(args.short_code, args.show))
+
+        if not any(args.note or args.short_code):
+            print('Incorrect usage for {}'.format('add'))
+
+    subparsers = parser.add_subparsers(help='sub-commands', dest='sub-command')
+
+    parser_add = subparsers.add_parser('add', help='add info to an existing show')
+    parser_dec = subparsers.add_parser('dec', help='decrement the next episode of a show')
+    parser_inc = subparsers.add_parser('inc', help='increment the next episode of a show')
+    parser_next = subparsers.add_parser('next', help='print details for the next episode')
+
+
+    parser_add.add_argument('show', **show_kwargs)
+    parser_add.set_defaults(func=add)
+    parser_dec.add_argument('show', **show_kwargs)
+    parser_inc.add_argument('show', **show_kwargs)
+    parser_next.add_argument('show', **show_kwargs)
+
+    parser_add.add_argument(
+        # '-n',
+        '--note',
+        help='add a note to the show',
+        # nargs='*',
+    )
+    parser_add.add_argument(
+        '-c',
+        '--short-code',
+        help='add a short_code to the show',
+        # metavar='SHORT_CODE',
+    )
+
+    args = parser.parse_args()
+    # args = parser_dec.parse_args()
+    print(args)
+    args.func(args)
+    # print(args.dec)
+
+    # if args.dec
+
+    # FIXME: Hacky code
+    # if args.show:
+    #     if len(args.show) > 1:
+    #         args.show = [' '.join(args.show)]
+    #     print('show={}'.format(args.show[0]))
+
+    # if args.inc:
+    #     print('Inc. {} by {} episodes'.format(args.show, args.inc))
+    # elif args.dec:
+    #     print('Dec. {} by {} episodes'.format(args.show, args.dec))
+
+
+
 
 
 def main(args):
@@ -604,4 +713,5 @@ def main(args):
 
 
 if __name__ == '__main__':
+    sys.exit(process_args())
     sys.exit(main(sys.argv))

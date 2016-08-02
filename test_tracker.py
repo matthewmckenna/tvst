@@ -231,12 +231,15 @@ class TrackedShowTestCase(unittest.TestCase):
         )
         self.assertEqual(tracked_show.prev, None)
 
+
 class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
     """Test case for .prev and .next attributes of a Tracked Show"""
     @classmethod
     def setUpClass(cls):
-        cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
-        cls.database = tracker.ShowDatabase(cls.testdir, watchlist_path='test_watchlist.txt')
+        # cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+        # cls.database = tracker.ShowDatabase(cls.testdir, watchlist_path='test_watchlist.txt')
+        # cls.database = tracker.load_database(os.path.join('.', '.test_showdb.json'))
+        cls.database = tracker.load_database('.test_showdb.json')
 
     def setUp(self):
         self.tracked_show = tracker.TrackedShow(

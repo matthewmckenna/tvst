@@ -223,7 +223,7 @@ class Deserializer:
             if key in registry:
                 # Gather the keyword arguments for class *key*
                 kwargs = dict(value.items())
-                return registry[key].load(**kwargs)
+                return registry[key](**kwargs)
 
 
 registry = {}
