@@ -353,6 +353,8 @@ class Database(RegisteredSerializable):
 
     def create_database(self):
         """Create a show database."""
+        # TODO: Need something to catch if we have no watchlist!
+        # if not os.path.exists(self.watchlist_path):
         watchlist = ProcessWatchlist(self.watchlist_path)
         for show in watchlist:
             self.add_show(show)
@@ -606,67 +608,83 @@ def process_args():
     parser = argparse.ArgumentParser(
         description='Utility to facilitate the tracking of TV shows',
         prefix_chars='-+',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         # add_help=False,
     )
 
-    # parser.add_argument(
-    #     '-s',
-    #     '--show',
-    #     help='title of show',
-    #     nargs='*',
-    # )
-
     show_kwargs = {
         'help': 'title of show',
-        # 'nargs': '*',
-
     }
 
     # parser.add_argument(
-    #     # 's',
-    #     'show',
-    #     help='title of show',
-    #     # nargs='*',
+    #     '-l',
+    #     '--list',
+    #     help='list N tracked shows',
+    #     default=5,
+    #     metavar='N',
     # )
 
-    # parser.add_argument(
-    #     '--inc',
-    #     help='increment an episode',
-    #     # type=int,
-    #     action='store_const',
-    #     const=1,
-    #     # default=1,
-    # )
-    # parser.add_argument(
-    #     '--dec',
-    #     help='decrement an episode',
-    #     # type=int,
-    #     action='store_const',
-    #     const=1,
-    #     # default=1,
-    # )
-    def add(args):
+    # I don't think the sub-command functions need to be closures
+    def command_add(args):
         if args.note:
-            print('add note={} to show={}'.format(args.note, args.show))
+            print('add note="{}" to show="{}"'.format(args.note, args.show))
         if args.short_code:
-            print('add short_code={} to show={}'.format(args.short_code, args.show))
+            print('add short_code="{}" to show="{}"'.format(args.short_code, args.show))
 
-        if not any(args.note or args.short_code):
-            print('Incorrect usage for {}'.format('add'))
+        if not args.note and not args.short_code:
+            print('Add show={}'.format(args.show))
 
-    subparsers = parser.add_subparsers(help='sub-commands', dest='sub-command')
+    def command_dec(args):
+        print('Dec. {} by {} episodes'.format(args.show, args.by))
 
-    parser_add = subparsers.add_parser('add', help='add info to an existing show')
-    parser_dec = subparsers.add_parser('dec', help='decrement the next episode of a show')
-    parser_inc = subparsers.add_parser('inc', help='increment the next episode of a show')
-    parser_next = subparsers.add_parser('next', help='print details for the next episode')
+    def command_inc(args):
+        print('Inc. {} by {} episodes'.format(args.show, args.by))
 
+    def command_next(args):
+        # >> Next episodes for 2 shows:
+        # Show             | Next episode
+        # ------------------------------------
+        # Game of Thrones  | S06 E04
+        # Supernatural     | S11 E21
+        print('Next episode for \'{}\': S{} E{})')
+        return '< {self.title} (S{self.season:02d}E{self.episode:02d}) >'.format(
+            self=self
+        )
+
+    subparsers = parser.add_subparsers(help='sub-commands', dest='sub_command')
+
+    parser_add = subparsers.add_parser(
+        'add',
+        help='add info to an existing show',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser_dec = subparsers.add_parser(
+        'dec',
+        help='decrement the next episode of a show',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser_inc = subparsers.add_parser(
+        'inc',
+        help='increment the next episode of a show',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser_next = subparsers.add_parser(
+        'next',
+        help='print details for the next episode',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
 
     parser_add.add_argument('show', **show_kwargs)
-    parser_add.set_defaults(func=add)
+    parser_add.set_defaults(func=command_add)
+
     parser_dec.add_argument('show', **show_kwargs)
+    parser_dec.set_defaults(func=command_dec)
+
     parser_inc.add_argument('show', **show_kwargs)
+    parser_inc.set_defaults(func=command_inc)
+
     parser_next.add_argument('show', **show_kwargs)
+    parser_next.set_defaults(func=command_next)
 
     parser_add.add_argument(
         # '-n',
@@ -681,25 +699,29 @@ def process_args():
         # metavar='SHORT_CODE',
     )
 
+    parser_dec.add_argument(
+        '--by',
+        help='decrement the currently tracked episode by B',
+        default=1,
+        metavar='B',
+    )
+
+    parser_inc.add_argument(
+        '--by',
+        help='increment the currently tracked episode by B',
+        default=1,
+        metavar='B',
+    )
+
     args = parser.parse_args()
-    # args = parser_dec.parse_args()
-    print(args)
-    args.func(args)
-    # print(args.dec)
 
-    # if args.dec
-
-    # FIXME: Hacky code
-    # if args.show:
-    #     if len(args.show) > 1:
-    #         args.show = [' '.join(args.show)]
-    #     print('show={}'.format(args.show[0]))
-
-    # if args.inc:
-    #     print('Inc. {} by {} episodes'.format(args.show, args.inc))
-    # elif args.dec:
-    #     print('Dec. {} by {} episodes'.format(args.show, args.dec))
-
+    if args.sub_command:
+        # print(args.__dict__)
+        args.func(args)
+    else:
+        # No sub-command supplied so list tracked shows
+        print('No sub-command supplied. List shows instead...')
+        list_episodes()
 
 
 

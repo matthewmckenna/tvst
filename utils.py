@@ -50,6 +50,44 @@ def lunderize(title):
     return title
 
 
+def tabulator(shows):
+    """Tabulates and outputs a table of next episodes for each show in shows.
+
+    Args:
+        shows: List of TrackedShow instances
+
+    Relevant attributes:
+        TrackedShow.title: Title of the show
+        TrackedShow.next.title Title of the episode
+        TrackedShow.next.season
+        TrackedShow.next.episode
+    """
+    padding = 3
+    headers = ['Show', 'Next episode', 'Title']
+
+    header_lengths = [len(h) for h in headers]
+    # TODO: Will need to edit this as .show and .ep_title are not be correct
+    # Split into separate lines
+    max_entry_lengths = [max(len(s.show) for s in shows), 6, max(len(s.ep_title) for s in shows)]
+    column_widths = [max(h, e) for h, e in zip(header_lengths, max_entry_lengths)]
+
+    for header, width in zip(headers, column_widths):
+        print('{:{}}{}'.format(header, width, ' '*padding), end='')
+    print()
+
+    for width in column_widths:
+        print('{:-<{}}{}'.format('', width+1, (padding-1)*' '), end='')
+    print()
+
+    for show in shows:
+        # TODO: .season and .episode are not correct
+        se_string = 'S{:02d}E{:02d}'.format(show.season, show.episode)
+
+        for field, w in zip((show.show, se_string, show.ep_title), column_widths):
+            print('{:{}}{}'.format(field, w, padding*' '), end='')
+        print()
+
+
 class ProcessWatchlist:
     """Read and process a list of shows being watched"""
     def __init__(self, path_to_watchlist=None):
