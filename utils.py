@@ -1,5 +1,6 @@
 import collections
 import json
+import os
 import re
 
 from exceptions import ShowNotFoundError, WatchlistNotFoundError
@@ -202,6 +203,39 @@ def check_season_bounds(next_episode, show_details):
         x
     """
     pass
+
+
+def check_file_exists(directory, filename):
+    """Return True if a file exists, otherwise False"""
+
+    path_to_file = os.path.join(directory, filename)
+
+    if os.path.exists(path_to_file):
+        return True
+
+    return False
+
+
+def check_for_databases():
+    """Check existence of Show Database and Tracker.
+
+    Returns:
+        Namedtuple with True/False flags based on whether
+        or not the two databases exist.
+    """
+    database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
+    # showdb_exists = check_file_exists(database_dir, '.showdb.json')
+    # tracker_exists = check_file_exists(database_dir, '.tracker.json')
+    showdb_exists = check_file_exists(database_dir, 'test1')
+    tracker_exists = check_file_exists(database_dir, 'test3')
+
+    DatabaseExistence = collections.namedtuple(
+        'DatabaseExistence',
+        ('showdb_exists', 'tracker_exists')
+    )
+
+    return DatabaseExistence(showdb_exists, tracker_exists)
+
 
 
 class Deserializer:

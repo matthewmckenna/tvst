@@ -25,6 +25,7 @@ from exceptions import (
     # WatchlistNotFoundError,
 )
 from utils import (
+    check_for_databases,
     Deserializer,
     EncodeShow,
     extract_episode_details,
@@ -36,7 +37,6 @@ from utils import (
     titleize,
 )
 
-# TODO: Add command line arguments
 # TODO: Add logging
 # TODO: Retrieve IGN ratings
 # TODO: Retrieve episode synopsis
@@ -100,6 +100,9 @@ class ShowDetails(RegisteredSerializable):
         self.request_title = sanitize_title(title)
         self.ltitle = lunderize(title)
         self.short_code = short_code
+
+    def __repr__(self):
+        return 'ShowDetails(title={!r})'.format(self.title)
 
 
 class TrackedShow(ShowDetails):
@@ -270,6 +273,10 @@ class TrackedShow(ShowDetails):
             self.next = self.prev
             self.prev = show_db._seasons[season]._episodes[episode]
 
+    def __repr__(self):
+        return ('TrackedShow(title={self.title!r}, _next_episode={self._next_episode!r}, '
+            'notes={self.notes!r}, short_code={self.short_code!r})'.format(self=self))
+
 
 class Show(ShowDetails):
     """Represent various details of a show.
@@ -354,7 +361,6 @@ class Database(RegisteredSerializable):
     def create_database(self):
         """Create a show database."""
         # TODO: Need something to catch if we have no watchlist!
-        # if not os.path.exists(self.watchlist_path):
         watchlist = ProcessWatchlist(self.watchlist_path)
         for show in watchlist:
             self.add_show(show)
@@ -422,6 +428,9 @@ class ShowDatabase(Database):
             print('Film found with the same name. Try adding a year with request.')
         else:
             self._shows[show.ltitle] = show
+
+    def __contains__(self, key):
+        return key in self._shows
 
 
 def load_database(path_to_database):
@@ -584,8 +593,17 @@ class TrackerDatabase(Database):
 
         # TODO: Validate episodes
 
+    def _short_codes(self):
+        for s in self._shows:
+            yield self._shows[s].short_code
+
     def __iter__(self):
         return iter(self._shows)
+
+    def __contains__(self, key):
+        full_title = key in self._shows
+        short_code = key in self._short_codes()
+        return full_title or short_code
 
     def __repr__(self):
         return '{}({})'.format(self.__class__.__name__, self.path_to_tracker)
@@ -593,18 +611,6 @@ class TrackerDatabase(Database):
 
 def process_args():
     """Process command line arguments."""
-
-# $ tracker.py <show> inc
-# $ tracker.py <show> dec
-# $ tracker.py <show> next
-# $ tracker.py <show> note=<note>
-# $ tracker.py <show> short_code=<short_code>
-# $ tracker.py <show> ratings
-
-# $ tracker.py add <show>
-#  - add a new, untracked show to the tracker
-# $ tracker.py add <path_to_watchlist>
-
     parser = argparse.ArgumentParser(
         description='Utility to facilitate the tracking of TV shows',
         prefix_chars='-+',
@@ -616,40 +622,22 @@ def process_args():
         'help': 'title of show',
     }
 
-    # parser.add_argument(
-    #     '-l',
-    #     '--list',
-    #     help='list N tracked shows',
-    #     default=5,
-    #     metavar='N',
-    # )
+    parser.add_argument(
+        '-l',
+        '--list',
+        help='list tracked shows',
+        action='store_true',
+        # default=5,
+        # metavar='N',
+    )
 
-    # I don't think the sub-command functions need to be closures
-    def command_add(args):
-        if args.note:
-            print('add note="{}" to show="{}"'.format(args.note, args.show))
-        if args.short_code:
-            print('add short_code="{}" to show="{}"'.format(args.short_code, args.show))
-
-        if not args.note and not args.short_code:
-            print('Add show={}'.format(args.show))
-
-    def command_dec(args):
-        print('Dec. {} by {} episodes'.format(args.show, args.by))
-
-    def command_inc(args):
-        print('Inc. {} by {} episodes'.format(args.show, args.by))
-
-    def command_next(args):
-        # >> Next episodes for 2 shows:
-        # Show             | Next episode
-        # ------------------------------------
-        # Game of Thrones  | S06 E04
-        # Supernatural     | S11 E21
-        print('Next episode for \'{}\': S{} E{})')
-        return '< {self.title} (S{self.season:02d}E{self.episode:02d}) >'.format(
-            self=self
-        )
+    parser.add_argument(
+        '-w',
+        '--watchlist',
+        help='read a watchlist',
+        nargs='?',
+        const='watchlist.txt',
+    )
 
     subparsers = parser.add_subparsers(help='sub-commands', dest='sub_command')
 
@@ -713,21 +701,91 @@ def process_args():
         metavar='B',
     )
 
-    args = parser.parse_args()
-
-    if args.sub_command:
-        # print(args.__dict__)
-        args.func(args)
-    else:
-        # No sub-command supplied so list tracked shows
-        print('No sub-command supplied. List shows instead...')
-        list_episodes()
+    return parser  #.parse_args()
 
 
+def command_watchlist():
+    showdb = ShowDatabase()
+
+
+def command_add(args):
+    if args.note:
+        print('add note="{}" to show="{}"'.format(args.note, args.show))
+    if args.short_code:
+        print('add short_code="{}" to show="{}"'.format(args.short_code, args.show))
+
+    if not args.note and not args.short_code:
+        print('Add show={}'.format(args.show))
+
+
+def command_dec(args):
+    print('Dec. {} by {} episodes'.format(args.show, args.by))
+
+
+def command_inc(args):
+    print('Inc. {} by {} episodes'.format(args.show, args.by))
+
+
+def command_next(args):
+    # >> Next episodes for 2 shows:
+    # Show             | Next episode
+    # ------------------------------------
+    # Game of Thrones  | S06 E04
+    # Supernatural     | S11 E21
+    print('Next episode for \'{}\': S{} E{})')
+    return '< {self.title} (S{self.season:02d}E{self.episode:02d}) >'.format(
+        self=self
+    )
 
 
 def main(args):
     """Main entry point for this utility"""
+    parser = process_args()
+    args = parser.parse_args()
+
+    # TODO: Remove this
+    print(args)
+
+    db_check = check_for_databases()
+    # TODO: Remove this
+    print(db_check)
+
+    if db_check.showdb_exists and db_check.tracker_exists:
+        pass
+    elif db_check.showdb_exists and not db_check.tracker_exists:
+        # TODO: Add error handling. Exit for now.
+        print('Tracker database not found')
+        sys.exit()
+    elif not db_check.showdb_exists and db_check.tracker_exists:
+        # TODO: Add error handling. Exit for now.
+        print('Show Database not found')
+        sys.exit()
+    else:
+        # Neither database present
+        # Now need to check that either --list, or --watchlist was passed
+        # If neither, then exit.
+        if not (args.list or args.watchlist or args.sub_command):
+            print()
+            parser.print_help()
+            # print('No databases found. No vaild option passed. Exiting.')
+            sys.exit()
+
+
+    # Order of precedence:
+    # 1. List
+    # 2. Watchlist
+    # 3. Subcommands
+    if args.list:
+        # list handling
+        pass
+    elif args.watchlist:
+        # watchlist handling
+        pass
+    else:
+        args.func(args)
+
+    # if not os.path.exists(showdb)
+    # list_episodes()
     # test_update_database()
     # watchlist = ProcessWatchlist()
     # show_database = ShowDatabase()
@@ -735,5 +793,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    sys.exit(process_args())
     sys.exit(main(sys.argv))
