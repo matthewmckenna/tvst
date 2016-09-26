@@ -42,6 +42,177 @@ from utils import (
 # TODO: Retrieve episode synopsis
 
 
+class Database(RegisteredSerializable):
+    """Provide base method for different types of databases"""
+    def __init__(
+        self,
+        database_dir=None,
+        _shows=None,
+    ):
+        if database_dir is None:
+            database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
+        self.database_dir = database_dir
+
+        self._shows = {} if _shows is None else _shows
+
+    def create_db_from_watchlist(self, watchlist_path):
+        """Create a database from a watchlist"""
+        watchlist = ProcessWatchlist(watchlist_path)
+        for show in watchlist:
+            self.add_show(show)
+
+    def write_db(self, indent=None):
+        """Write database to disk"""
+        try:
+            os.mkdir(self.database_dir)
+        except OSError:
+            # logger.debug('os.mkdir failed: directory=%r already exists',
+            #     self.database_dir)
+            pass  # TODO: Remove pass, and enable logging
+
+        with open(self.path_to_db, 'w', encoding='utf-8') as f:
+            json.dump(self, f, cls=EncodeShow, indent=indent, sort_keys=True)
+
+
+class ShowDatabase(Database):
+    def __init__(
+        self,
+        database_dir=None,
+        path_to_db=None,
+        # showdb_name=None,
+        _shows=None,
+    ):
+        super().__init__(database_dir, _shows)
+
+        # self.showdb_name = '.showdb.json' if showdb_name is None else showdb_name
+        showdb_name = '.showdb.json'
+        if path_to_db is None:
+            self.path_to_db = os.path.join(self.database_dir, showdb_name)
+        else:
+            self.path_to_db = path_to_db
+
+        # if not os.path.exists(self.path_to_showdb):
+        #     self.create_database()
+
+    def add_show(self, show_details):
+        """Add a show to the database.
+
+        Args:
+            show_details: namedtuple with the following fields:
+                show_title
+                next_episode
+                notes
+        Example show_details:
+                'Game of Thrones'
+                'S01E01'
+                'Pilot episode'
+        """
+        title = show_details.show_title
+        show = Show(title)
+        # FIXME: Hidden IO
+        try:
+            show.populate_seasons()
+        except FoundFilmError:
+            # TODO: Handle this properly
+            # Current idea is to go to imdb.com, do a search with request_title
+            # Then scrape the response page for *SHOW* (TV Series).
+            # Extract the IMDB ID and then perform another search on
+            # omdbapi.com with the direct ID
+            print('Film found with the same name. Try adding a year with request.')
+        else:
+            self._shows[show.ltitle] = show
+
+    def __contains__(self, key):
+        return key in self._shows
+
+    def __repr__(self):
+        return '{}({!r})'.format(self.__class__.__name__, self.path_to_db)
+
+
+
+class TrackerDatabase(Database):
+    """Provided methods to read current tracker information.
+
+    Available methods:
+        next_episode:
+    """
+    def __init__(
+        self,
+        database_dir=None,
+        path_to_db=None,
+        # tracker_name=None,
+        # showdb_name=None,
+        _shows=None,
+    ):
+        super().__init__(database_dir, _shows)
+
+        # TODO: Do tracker_name and showdb_name need to be instance attributes?
+        # self.tracker_name = '.tracker.json' if tracker_name is None else tracker_name
+        tracker_name = '.tracker.json'
+        if path_to_db is None:
+            self.path_to_db = os.path.join(self.database_dir, tracker_name)
+        else:
+            self.path_to_db = path_to_db
+
+        # self.path_to_tracker = os.path.join(self.database_dir, self.tracker_name)
+
+        # self.showdb_name = '.showdb.json' if showdb_name is None else showdb_name
+        # self.path_to_showdb = os.path.join(self.database_dir, self.showdb_name)
+
+        # if not os.path.exists(self.path_to_tracker):
+        #     self.create_database()
+        #     show_db = load_database(self.path_to_showdb)
+        #     self._add_next_prev_episode(show_db)
+
+    def add_show(self, show_details):
+        show = TrackedShow(
+            title=show_details.show_title,
+            _next_episode=show_details.next_episode,
+            notes=show_details.notes,
+        )
+        self._shows[show.ltitle] = show
+
+    def create_tracker_from_watchlist(self, watchlist_path, showdb=None):
+        """Create a tracker database from a watchlist"""
+        if showdb is None:
+            # Attempt to load the ShowDatabase from the common database
+            # directory
+            try:
+                showdb = load_database(
+                    os.path.join(os.path.dirname(self.path_to_db), '.showdb.json')
+                )
+            except FileNotFoundError:
+                # TODO: Log this
+                pass
+
+        self.create_db_from_watchlist(watchlist_path)
+        self._add_next_prev_episode(showdb)
+
+    def _add_next_prev_episode(self, showdb):
+        """Add the next and previous episodes for the tracked show"""
+        # TODO: Do I really have to call .values()
+        for show in self._shows.values():
+            try:
+                show._set_next_prev(showdb)
+            except OutOfBoundsError:
+                pass  # TODO: Add proper handling
+
+    def _short_codes(self):
+        for s in self._shows:
+            yield self._shows[s].short_code
+
+    def __iter__(self):
+        return iter(self._shows)
+
+    def __contains__(self, key):
+        full_title = key in self._shows
+        short_code = key in self._short_codes()
+        return full_title or short_code
+
+    def __repr__(self):
+        return '{}({!r})'.format(self.__class__.__name__, self.path_to_db)
+
+
 class Season(RegisteredSerializable):
     """Represent a season of a TV show"""
     def __init__(self, episodes_this_season=0, _episodes=None):
@@ -95,7 +266,7 @@ class ShowDetails(RegisteredSerializable):
     Provide access to various title formats and the short_code of
     a Show.
     """
-    def __init__(self, title=None, ltitle=None, request_title=None, short_code=None):
+    def __init__(self, title=None, short_code=None):
         self.title = title
         self.request_title = sanitize_title(title)
         self.ltitle = lunderize(title)
@@ -119,8 +290,10 @@ class TrackedShow(ShowDetails):
         _next_episode=None,
         notes=None,
         short_code=None,
+        next=None,
+        prev=None,
     ):
-        super().__init__(title, ltitle, request_title, short_code)
+        super().__init__(title, short_code)
         self.next = None
         self.notes = notes
         self.prev = None
@@ -292,7 +465,7 @@ class Show(ShowDetails):
         short_code=None,
         _seasons=None
     ):
-        super().__init__(title, ltitle, request_title, short_code)
+        super().__init__(title, short_code)
         self._seasons = [] if _seasons is None else _seasons
 
     def request_show_info(self, season=None):
@@ -340,99 +513,6 @@ class Show(ShowDetails):
         self._seasons.append(s)
 
 
-class Database(RegisteredSerializable):
-    """Provide base method for different types of databases"""
-    def __init__(
-        self,
-        database_dir=None,
-        watchlist_path=None,
-        _shows=None,
-        last_modified=None,
-    ):
-        if database_dir is None:
-            database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
-        self.database_dir = database_dir
-
-        self.watchlist_path = watchlist_path
-
-        self._shows = {} if _shows is None else _shows
-        self.last_modified = last_modified
-
-    def create_database(self):
-        """Create a show database."""
-        # TODO: Need something to catch if we have no watchlist!
-        watchlist = ProcessWatchlist(self.watchlist_path)
-        for show in watchlist:
-            self.add_show(show)
-
-    def write_database(self, indent=None):
-        """Write a ShowDatabase to disk"""
-        date_format = '%A %B %d, %Y %H:%M:%S'
-        self.last_modified = datetime.datetime.now().strftime(date_format)
-
-        # Create a directory for the databases to live
-        try:
-            os.mkdir(self.database_dir)
-        except OSError:
-            pass  # TODO: Log that the directory already exists
-
-        with open(self.path_to_database, 'w', encoding='utf-8') as f:
-            json.dump(self, f, cls=EncodeShow, indent=indent, sort_keys=True)
-
-    def read_watchlist(self):
-        """Read and process a watchlist.
-
-        Read a watchlist and split into show_title, next_episode
-        and any notes associated.
-
-        Returns:
-            a ProcessWatchlist instance which is an iterator
-
-        Raises:
-            WatchlistNotFoundError if a watchlist does not exist
-        """
-        return ProcessWatchlist(self._watchlist_path)
-
-
-class ShowDatabase(Database):
-    def __init__(
-        self,
-        database_dir=None,
-        path_to_database=None,
-        watchlist_path=None,
-        _shows=None,
-        last_modified=None,
-    ):
-        super().__init__(database_dir, watchlist_path, _shows, last_modified)
-
-        if path_to_database is None:
-            path_to_database = os.path.join(self.database_dir, '.showdb.json')
-
-        self.path_to_database = path_to_database
-
-        if not os.path.exists(self.path_to_database):
-            self.create_database()
-
-    def add_show(self, show_details):
-        title = show_details.show_title
-        show = Show(title)
-        # FIXME: Hidden IO
-        try:
-            show.populate_seasons()
-        except FoundFilmError:
-            # TODO: Handle this properly
-            # Current idea is to go to imdb.com, do a search with request_title
-            # Then scrape the response page for *SHOW* (TV Series).
-            # Extract the IMDB ID and then perform another search on
-            # omdbapi.com with the direct ID
-            print('Film found with the same name. Try adding a year with request.')
-        else:
-            self._shows[show.ltitle] = show
-
-    def __contains__(self, key):
-        return key in self._shows
-
-
 def load_database(path_to_database):
     """Return an existing database"""
     try:
@@ -445,6 +525,19 @@ def load_database(path_to_database):
         database = deserializer.deserialize()
 
     return database
+
+
+def load_all_dbs(database_dir):
+    """Load and return a ShowDB and TrackerDB.
+
+    Returns:
+        showdb: ShowDatabse instance
+        tracker: TrackerDatabase instance
+
+    """
+    showdb = load_database(os.path.join(database_dir, '.showdb.json'))
+    tracker = load_database(os.path.join(database_dir, '.tracker.json'))
+    return showdb, tracker
 
 
 def update_database():
@@ -505,108 +598,6 @@ def update_tracker_title(tracker, database):
     """
     for show in tracker:
         show.title = database[show.ltitle]['title']
-
-
-class TrackerDatabase(Database):
-    """Provided methods to read current tracker information.
-
-    Available methods:
-        next_episode:
-    """
-    def __init__(
-        self,
-        database_dir=None,
-        path_to_tracker=None,
-        path_to_show_db=None,
-        watchlist_path=None,
-        _shows=None,
-        last_modified=None,
-    ):
-        super().__init__(database_dir, watchlist_path, _shows, last_modified)
-
-        if path_to_tracker is None:
-            path_to_tracker = os.path.join(self.database_dir, '.tracker.json')
-
-        self.path_to_tracker = path_to_tracker
-
-        if path_to_show_db is None:
-            path_to_show_db = os.path.join(self.database_dir, '.showdb.json')
-
-        self.path_to_show_db = path_to_show_db
-
-        if not os.path.exists(self.path_to_tracker):
-            self.create_database()
-            show_db = load_database(self.path_to_show_db)
-            self._add_next_prev_episode(show_db)
-
-    def add_show(self, show_details):
-        print('Tracker: add_show()')
-        show = TrackedShow(
-            title=show_details.show_title,
-            _next_episode=show_details.next_episode,
-            notes=show_details.notes,
-        )
-        self._shows[show.ltitle] = show
-
-    def _add_next_prev_episode(self, database):
-        """Add the next and previous episodes for the tracked show"""
-        for show in self._shows.values():
-            try:
-                show._set_next_prev(database)
-            except OutOfBoundsError:
-                pass  # TODO: Add proper handling
-
-    # TODO: Make this function work for next and previous episode
-    def get_episode_details(self, show, verbose=False, which='next'):
-        """Return the next episode for the show provided."""
-        try:
-            details = self.tracker['shows'][show]
-        except KeyError:
-            raise ShowNotTrackedError
-
-        try:
-            details = details[which]
-        except KeyError:
-            return 'No {} episode information available'.format(which)
-
-        if verbose:
-            msg = ''.join('{}: {}\n'.format(key.capitalize(), value) for key, value in details.items())
-        else:
-            msg = '{} episode for {}: S{:02d} E{:02d}'.format(
-                which.capitalize(),
-                titleize(show.split()),
-                details['season'],
-                details['episode'],
-            )
-
-        return msg
-
-    def inc_episode(self, show):
-        """Increment the current episode number."""
-        try:
-            details = self.tracker['shows'][show]
-        except KeyError:
-            raise ShowNotTrackedError
-
-        for which in ('next', 'previous'):
-            details[which]['episode'] += 1
-
-        # TODO: Validate episodes
-
-    def _short_codes(self):
-        for s in self._shows:
-            yield self._shows[s].short_code
-
-    def __iter__(self):
-        return iter(self._shows)
-
-    def __contains__(self, key):
-        full_title = key in self._shows
-        short_code = key in self._short_codes()
-        return full_title or short_code
-
-    def __repr__(self):
-        return '{}({})'.format(self.__class__.__name__, self.path_to_tracker)
 
 
 def process_args():

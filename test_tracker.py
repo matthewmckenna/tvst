@@ -239,7 +239,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
         # cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
         # cls.database = tracker.ShowDatabase(cls.testdir, watchlist_path='test_watchlist.txt')
         # cls.database = tracker.load_database(os.path.join('.', '.test_showdb.json'))
-        cls.database = tracker.load_database('.test_showdb.json')
+        cls.database = tracker.load_database('example/.showdb.json')
 
     def setUp(self):
         self.tracked_show = tracker.TrackedShow(
@@ -266,7 +266,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
     def test_inc_episode_good_episode_rating(self):
         """Make sure we set the next episode rating"""
         self.tracked_show.inc_episode(self.database)
-        self.assertEqual(self.tracked_show.next.ratings['imdb'], 10.0)
+        self.assertEqual(self.tracked_show.next.ratings['imdb'], 9.9)
 
     def test_inc_episode_good_prev_episode_number(self):
         """Make sure we set the previous episode number"""
@@ -281,7 +281,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
     def test_inc_episode_good_prev_episode_rating(self):
         """Make sure we set the previous episode rating"""
         self.tracked_show.inc_episode(self.database)
-        self.assertEqual(self.tracked_show.prev.ratings['imdb'], 10.0)
+        self.assertEqual(self.tracked_show.prev.ratings['imdb'], 9.9)
 
     def test_inc_episode_season_finale_next_episode(self):
         """Make sure we handle the season boundary transition correctly"""
@@ -329,7 +329,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
         """Make sure we handle the season boundary transition correctly"""
         self.tracked_show.inc_episode(self.database)
         self.tracked_show.inc_episode(self.database)
-        self.assertEqual(self.tracked_show.prev.ratings['imdb'], 10.0)
+        self.assertEqual(self.tracked_show.prev.ratings['imdb'], 9.9)
 
     def test_inc_episode_season_finale_prev_title_by_equals_two(self):
         """Make sure we handle the season boundary transition correctly"""
@@ -367,7 +367,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
         """Make sure we handle the season boundary transition correctly"""
         self.tracked_show.dec_episode(self.database)
         self.tracked_show.dec_episode(self.database)
-        self.assertEqual(self.tracked_show.next.ratings['imdb'], None)
+        self.assertEqual(self.tracked_show.next.ratings['imdb'], 8.6)
 
     def test_dec_episode_season_finale_prev_episode(self):
         """Make sure we handle the season boundary transition correctly"""
