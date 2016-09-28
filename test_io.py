@@ -96,5 +96,85 @@ class ShowDBLoadTestCase(unittest.TestCase):
         os.rmdir(cls.testdir)
 
 
+class TrackerTestCase(unittest.TestCase):
+    """Test case for ShowDatabase class"""
+    @classmethod
+    def setUpClass(cls):
+        watchlist = 'test_watchlist.txt'
+        cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+        show_db = tracker.ShowDatabase(cls.testdir)
+        show_db.create_db_from_watchlist(watchlist)
+
+        cls.trackerdb = tracker.TrackerDatabase(cls.testdir)
+        cls.trackerdb.create_tracker_from_watchlist(watchlist, showdb=show_db)
+
+
+    def test_create_database(self):
+        """Test database is correctly created as a Database instance"""
+        self.assertIsInstance(self.trackerdb, tracker.TrackerDatabase)
+
+    def test_write_database(self):
+        """Test database is correctly written to disk"""
+        self.trackerdb.write_db()
+        self.assertTrue(os.path.exists(self.trackerdb.path_to_db))
+
+    def test_show_in_database(self):
+        """Check that we correctly return a TrackedShow instance"""
+        self.assertTrue('game_of_thrones' in self.trackerdb)
+
+    @classmethod
+    def tearDownClass(cls):
+        os.remove(os.path.join(cls.testdir, '.tracker.json'))
+        os.rmdir(cls.testdir)
+
+
+class TrackerDBLoadTestCase(unittest.TestCase):
+    """Load an existing TrackerDB"""
+    @classmethod
+    def setUpClass(cls):
+        watchlist = 'test_watchlist.txt'
+        cls.testdir = os.path.join(os.path.expanduser('~'), 'showtest1')
+        # Protect against a .showdb file already existing in this directory
+        if os.path.exists(os.path.join(cls.testdir, '.showdb.json')):
+            os.remove(os.path.join(cls.testdir, '.showdb.json'))
+
+        # Protect against a .tracker file already existing in this directory
+        if os.path.exists(os.path.join(cls.testdir, '.tracker.json')):
+            os.remove(os.path.join(cls.testdir, '.tracker.json'))
+
+        showdb = tracker.ShowDatabase(cls.testdir)
+        showdb.create_db_from_watchlist(watchlist)
+        showdb.write_db()
+
+        trackerdb = tracker.TrackerDatabase(cls.testdir)
+        trackerdb.create_tracker_from_watchlist(watchlist)
+        trackerdb.write_db()
+
+
+    def test_load_database_good_next_episode(self):
+        """Test that we correctly build objects when loading from file"""
+        trackerdb = tracker.load_database(os.path.join(self.testdir, '.tracker.json'))
+
+        self.assertEqual(
+            trackerdb._shows['game_of_thrones']._next.episode,
+            10
+        )
+
+    def test_load_database_good_prev_episode(self):
+        """Test that we correctly build objects when loading from file"""
+        trackerdb = tracker.load_database(os.path.join(self.testdir, '.tracker.json'))
+
+        self.assertEqual(
+            trackerdb._shows['game_of_thrones']._prev.episode,
+            9
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        os.remove(os.path.join(cls.testdir, '.tracker.json'))
+        os.remove(os.path.join(cls.testdir, '.showdb.json'))
+        os.rmdir(cls.testdir)
+
+
 if __name__ == '__main__':
     unittest.main()

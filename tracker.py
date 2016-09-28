@@ -287,16 +287,16 @@ class TrackedShow(ShowDetails):
         title=None,
         ltitle=None,
         request_title=None,
-        _next_episode=None,
+        _next_episode='s01e01',
         notes=None,
         short_code=None,
-        next=None,
-        prev=None,
+        _next=None,
+        _prev=None,
     ):
         super().__init__(title, short_code)
-        self.next = None
+        self._next = _next
         self.notes = notes
-        self.prev = None
+        self._prev = _prev
         self._next_episode = _next_episode
 
     def _get_season_episode_from_str(self):
@@ -324,7 +324,7 @@ class TrackedShow(ShowDetails):
 
         self._validate_season_episode(show_db, season, episode)
 
-        self.next = show_db._seasons[season]._episodes[episode]
+        self._next = show_db._seasons[season]._episodes[episode]
 
         if season == 0 and episode == 0:
             return
@@ -334,7 +334,7 @@ class TrackedShow(ShowDetails):
         else:
             episode -= 1
 
-        self.prev = show_db._seasons[season]._episodes[episode]
+        self._prev = show_db._seasons[season]._episodes[episode]
 
     def inc_dec_episode(self, show_database, inc=False, dec=False):
         """x"""
@@ -352,10 +352,10 @@ class TrackedShow(ShowDetails):
     def _adjust_season_episode(self, inc, dec):
         """Return a zero-index adjusted season and episode"""
         if inc:
-            return self.next.season-1, self.next.episode-1
+            return self._next.season-1, self._next.episode-1
         elif dec:
             try:
-                season, episode = self.prev.season-1, self.prev.episode-1
+                season, episode = self._prev.season-1, self._prev.episode-1
             except AttributeError:
                 # self.prev is None, meaning we are dealing with the first
                 # episode of a show (S01E01).
@@ -392,12 +392,12 @@ class TrackedShow(ShowDetails):
         # May raise a ShowNotFoundError
         show_db = get_show_database_entry(show_database, title=self.ltitle)
 
-        season, episode = self.next.season-1, self.next.episode-1
+        season, episode = self._next.season-1, self._next.episode-1
 
         for inc in range(by):
             # Check if the current ('old') next_episode is the season finale
             # If so, the 'new' next_episode will be the next season premiere.
-            if self.next.episode == show_db._seasons[season].episodes_this_season:
+            if self._next.episode == show_db._seasons[season].episodes_this_season:
                 season += 1
                 episode = 0
             else:
@@ -405,8 +405,8 @@ class TrackedShow(ShowDetails):
 
             self._validate_season_episode(show_db, season, episode)
 
-            self.prev = self.next
-            self.next = show_db._seasons[season]._episodes[episode]
+            self._prev = self._next
+            self._next = show_db._seasons[season]._episodes[episode]
 
     def dec_episode(self, show_database, by=1):
         """Decrement the next episode for a tracked show.
@@ -424,14 +424,14 @@ class TrackedShow(ShowDetails):
         show_db = get_show_database_entry(show_database, title=self.ltitle)
 
         try:
-            season, episode = self.prev.season-1, self.prev.episode-1
+            season, episode = self._prev.season-1, self._prev.episode-1
         except AttributeError:
             # self.prev is None
             season, episode = 0, 0
 
         for dec in range(by):
             if season == 0 and episode == 0:
-                self.next = show_db._seasons[season]._episodes[episode]
+                self._next = show_db._seasons[season]._episodes[episode]
                 break  # TODO: Perhaps raise something
             # Decrement over a season boundary, for season > 0.
             # Set the episode to the finale of the previous season
@@ -443,8 +443,8 @@ class TrackedShow(ShowDetails):
 
             self._validate_season_episode(show_db, season, episode)
 
-            self.next = self.prev
-            self.prev = show_db._seasons[season]._episodes[episode]
+            self._next = self._prev
+            self._prev = show_db._seasons[season]._episodes[episode]
 
     def __repr__(self):
         return ('TrackedShow(title={self.title!r}, _next_episode={self._next_episode!r}, '
