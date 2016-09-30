@@ -69,7 +69,7 @@ def tabulator(shows):
     header_lengths = [len(h) for h in headers]
     # TODO: Will need to edit this as .show and .ep_title are not be correct
     # Split into separate lines
-    max_entry_lengths = [max(len(s.show) for s in shows), 6, max(len(s.ep_title) for s in shows)]
+    max_entry_lengths = [max(len(s.title) for s in shows), 6, max(len(s._next.title) for s in shows)]
     column_widths = [max(h, e) for h, e in zip(header_lengths, max_entry_lengths)]
 
     for header, width in zip(headers, column_widths):
@@ -82,9 +82,9 @@ def tabulator(shows):
 
     for show in shows:
         # TODO: .season and .episode are not correct
-        se_string = 'S{:02d}E{:02d}'.format(show.season, show.episode)
+        se_string = 'S{:02d}E{:02d}'.format(show._next.season, show._next.episode)
 
-        for field, w in zip((show.show, se_string, show.ep_title), column_widths):
+        for field, w in zip((show.title, se_string, show._next.title), column_widths):
             print('{:{}}{}'.format(field, w, padding*' '), end='')
         print()
 
@@ -216,18 +216,22 @@ def check_file_exists(directory, filename):
     return False
 
 
-def check_for_databases():
+def check_for_databases(database_dir):
     """Check existence of Show Database and Tracker.
+
+    Args:
+        database_dir: directory containing databases
 
     Returns:
         Namedtuple with True/False flags based on whether
         or not the two databases exist.
     """
-    database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
-    # showdb_exists = check_file_exists(database_dir, '.showdb.json')
-    # tracker_exists = check_file_exists(database_dir, '.tracker.json')
-    showdb_exists = check_file_exists(database_dir, 'test1')
-    tracker_exists = check_file_exists(database_dir, 'test3')
+    # if database_dir is None:
+    #     database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
+    showdb_exists = check_file_exists(database_dir, '.showdb.json')
+    tracker_exists = check_file_exists(database_dir, '.tracker.json')
+    # showdb_exists = check_file_exists(database_dir, 'test1')
+    # tracker_exists = check_file_exists(database_dir, 'test3')
 
     DatabaseExistence = collections.namedtuple(
         'DatabaseExistence',

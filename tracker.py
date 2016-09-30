@@ -34,6 +34,7 @@ from utils import (
     ProcessWatchlist,
     RegisteredSerializable,
     sanitize_title,
+    tabulator,
     titleize,
 )
 
@@ -630,6 +631,14 @@ def process_args():
         const='watchlist.txt',
     )
 
+    parser.add_argument(
+        '--database-dir',
+        help='directory where databases are located',
+        # nargs='?',
+        # const='watchlist.txt',
+        default=os.path.join(os.path.expanduser('~'), '.showtracker'),
+    )
+
     subparsers = parser.add_subparsers(help='sub-commands', dest='sub_command')
 
     parser_add = subparsers.add_parser(
@@ -729,20 +738,21 @@ def command_next(args):
     )
 
 
-def main(args):
+def main(arguments):
     """Main entry point for this utility"""
+    # print(arguments)
     parser = process_args()
     args = parser.parse_args()
 
     # TODO: Remove this
     print(args)
 
-    db_check = check_for_databases()
+    db_check = check_for_databases(args.database_dir)
     # TODO: Remove this
     print(db_check)
 
     if db_check.showdb_exists and db_check.tracker_exists:
-        pass
+        showdb, trackerdb = load_all_dbs(args.database_dir)
     elif db_check.showdb_exists and not db_check.tracker_exists:
         # TODO: Add error handling. Exit for now.
         print('Tracker database not found')
@@ -752,14 +762,21 @@ def main(args):
         print('Show Database not found')
         sys.exit()
     else:
+        # TODO: Merge this logic with conditional below
         # Neither database present
-        # Now need to check that either --list, or --watchlist was passed
-        # If neither, then exit.
-        if not (args.list or args.watchlist or args.sub_command):
+        # Only correct usage at this point is to add a show
+        if not (args.watchlist or args.sub_command == 'add'):
             print()
             parser.print_help()
-            # print('No databases found. No vaild option passed. Exiting.')
+            print('No databases found. No vaild option passed. Exiting.')
             sys.exit()
+
+    # Handles case where databases are present, but a non-functional option
+    # was passed, such as --database-dir
+    if not (args.list or args.watchlist or args.sub_command):
+        print()
+        parser.print_help()
+        sys.exit()
 
 
     # Order of precedence:
@@ -768,7 +785,8 @@ def main(args):
     # 3. Subcommands
     if args.list:
         # list handling
-        pass
+        # tabulator([show for show in trackerdb._shows])
+        tabulator([trackerdb._shows[key] for key in trackerdb])
     elif args.watchlist:
         # watchlist handling
         pass

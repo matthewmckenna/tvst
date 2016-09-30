@@ -108,7 +108,6 @@ class TrackerTestCase(unittest.TestCase):
         cls.trackerdb = tracker.TrackerDatabase(cls.testdir)
         cls.trackerdb.create_tracker_from_watchlist(watchlist, showdb=show_db)
 
-
     def test_create_database(self):
         """Test database is correctly created as a Database instance"""
         self.assertIsInstance(self.trackerdb, tracker.TrackerDatabase)
