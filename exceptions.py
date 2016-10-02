@@ -44,3 +44,15 @@ class SeasonOutOfBoundsError(OutOfBoundsError):
 
 class InvalidOperationError(Exception):
     pass
+
+class DatabaseError(Exception):
+    pass
+
+class TrackerDatabaseNotFoundError(DatabaseError):
+    pass
+
+class ShowDatabaseNotFoundError(DatabaseError):
+    pass
+
+class InvalidUsageError(Exception):
+    pass

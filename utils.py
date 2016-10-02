@@ -64,14 +64,16 @@ def tabulator(shows):
         TrackedShow.next.episode
     """
     padding = 3
-    headers = ['Show', 'Next episode', 'Title']
+    headers = ['Show', 'Next episode', 'Rating', 'Title']
+    shows = sorted(shows)
 
     header_lengths = [len(h) for h in headers]
-    # TODO: Will need to edit this as .show and .ep_title are not be correct
-    # Split into separate lines
-    max_entry_lengths = [max(len(s.title) for s in shows), 6, max(len(s._next.title) for s in shows)]
+    max_show_title_length = max(len(s.title) for s in shows)
+    max_ep_title_length = max(len(s._next.title) for s in shows)
+    max_entry_lengths = [max_ep_title_length, 6, 6, max_ep_title_length]
     column_widths = [max(h, e) for h, e in zip(header_lengths, max_entry_lengths)]
 
+    # print()
     for header, width in zip(headers, column_widths):
         print('{:{}}{}'.format(header, width, ' '*padding), end='')
     print()
@@ -81,11 +83,15 @@ def tabulator(shows):
     print()
 
     for show in shows:
-        # TODO: .season and .episode are not correct
         se_string = 'S{:02d}E{:02d}'.format(show._next.season, show._next.episode)
 
-        for field, w in zip((show.title, se_string, show._next.title), column_widths):
-            print('{:{}}{}'.format(field, w, padding*' '), end='')
+        if show._next.ratings['imdb'] is None:
+            rating = 'N/A'
+        else:
+            rating = show._next.ratings['imdb']
+
+        for field, w in zip((show.title, se_string, rating, show._next.title), column_widths):
+            print('{:<{}}{}'.format(field, w, padding*' '), end='')
         print()
 
 

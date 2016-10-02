@@ -17,11 +17,14 @@ from exceptions import (
     EpisodeOutOfBoundsError,
     FoundFilmError,
     InvalidOperationError,
+    InvalidUsageError,
     OutOfBoundsError,
     SeasonEpisodeParseError,
     SeasonOutOfBoundsError,
+    ShowDatabaseNotFoundError,
     ShowNotFoundError,
     ShowNotTrackedError,
+    TrackerDatabaseNotFoundError,
     # WatchlistNotFoundError,
 )
 from utils import (
@@ -256,7 +259,7 @@ class Episode(RegisteredSerializable):
         self.ratings = ratings
 
     def __repr__(self):
-        return '< {self.title} (S{self.season:02d}E{self.episode:02d}) >'.format(
+        return '{self.title} (S{self.season:02d}E{self.episode:02d})'.format(
             self=self
         )
 
@@ -272,6 +275,18 @@ class ShowDetails(RegisteredSerializable):
         self.request_title = sanitize_title(title)
         self.ltitle = lunderize(title)
         self.short_code = short_code
+
+    def __lt__(self, other):
+        return self.ltitle < other.ltitle
+
+    def __gt__(self, other):
+        return self.ltitle > other.ltitle
+
+    def __eq__(self, other):
+        return self.ltitle == other.ltitle
+
+    def __ne__(self, other):
+        return self.ltitle != other.ltitle
 
     def __repr__(self):
         return 'ShowDetails(title={!r})'.format(self.title)
@@ -692,6 +707,7 @@ def process_args():
         help='decrement the currently tracked episode by B',
         default=1,
         metavar='B',
+        type=int,
     )
 
     parser_inc.add_argument(
@@ -699,6 +715,7 @@ def process_args():
         help='increment the currently tracked episode by B',
         default=1,
         metavar='B',
+        type=int,
     )
 
     return parser  #.parse_args()
@@ -718,12 +735,32 @@ def command_add(args):
         print('Add show={}'.format(args.show))
 
 
-def command_dec(args):
-    print('Dec. {} by {} episodes'.format(args.show, args.by))
+def command_dec(args, showdb, trackerdb):
+    """Decrement the next episode for a show."""
+    ltitle = lunderize(args.show)
+    if ltitle not in trackerdb:
+        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(ltitle))
+
+    print(trackerdb._shows[ltitle]._next)
+    title = trackerdb._shows[ltitle].title
+    trackerdb._shows[ltitle].dec_episode(showdb, args.by)
+    # logger.info('Decrement {} by {} episodes'.format(title, args.by))
+    print(trackerdb._shows[ltitle]._next)
+    # print('Dec. {} by {} episodes'.format(args.show, args.by))
 
 
-def command_inc(args):
-    print('Inc. {} by {} episodes'.format(args.show, args.by))
+def command_inc(args, showdb, trackerdb):
+    """Increment the next episode for a show."""
+    ltitle = lunderize(args.show)
+    if ltitle not in trackerdb:
+        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(ltitle))
+
+    print(trackerdb._shows[ltitle]._next)
+    title = trackerdb._shows[ltitle].title
+    trackerdb._shows[ltitle].inc_episode(showdb, args.by)
+    # logger.info('Increment {} by {} episodes'.format(title, args.by))
+    print(trackerdb._shows[ltitle]._next)
+    # print('Dec. {} by {} episodes'.format(args.show, args.by))
 
 
 def command_next(args):
@@ -738,60 +775,53 @@ def command_next(args):
     )
 
 
-def main(arguments):
-    """Main entry point for this utility"""
-    # print(arguments)
-    parser = process_args()
-    args = parser.parse_args()
-
+def tracker(args):
+    """Main body of code for application"""
     # TODO: Remove this
-    print(args)
+    # print(args)
 
     db_check = check_for_databases(args.database_dir)
     # TODO: Remove this
-    print(db_check)
+    # print(db_check)
 
     if db_check.showdb_exists and db_check.tracker_exists:
         showdb, trackerdb = load_all_dbs(args.database_dir)
     elif db_check.showdb_exists and not db_check.tracker_exists:
-        # TODO: Add error handling. Exit for now.
-        print('Tracker database not found')
-        sys.exit()
+        raise TrackerDatabaseNotFoundError('Tracker Database not found')
     elif not db_check.showdb_exists and db_check.tracker_exists:
-        # TODO: Add error handling. Exit for now.
-        print('Show Database not found')
-        sys.exit()
+        raise ShowDatabaseNotFoundError('Show Database not found')
     else:
-        # TODO: Merge this logic with conditional below
         # Neither database present
         # Only correct usage at this point is to add a show
         if not (args.watchlist or args.sub_command == 'add'):
-            print()
-            parser.print_help()
-            print('No databases found. No vaild option passed. Exiting.')
-            sys.exit()
+            raise InvalidUsageError('No databases found, and no attempt to add a show.')
 
     # Handles case where databases are present, but a non-functional option
     # was passed, such as --database-dir
     if not (args.list or args.watchlist or args.sub_command):
-        print()
-        parser.print_help()
-        sys.exit()
-
+        raise InvalidUsageError('Databases present, but no other valid commands passed')
 
     # Order of precedence:
     # 1. List
     # 2. Watchlist
     # 3. Subcommands
     if args.list:
-        # list handling
-        # tabulator([show for show in trackerdb._shows])
         tabulator([trackerdb._shows[key] for key in trackerdb])
     elif args.watchlist:
         # watchlist handling
         pass
     else:
-        args.func(args)
+        # All subcommands involve a SHOW argument.
+        # Need to sanitize this input
+        print(args)
+        ltitle = lunderize(args.show)
+        # print(ltitle)
+        try:
+            args.func(args, showdb, trackerdb)
+        except:
+            pass
+
+    # attempt to write the database here
 
     # if not os.path.exists(showdb)
     # list_episodes()
@@ -801,5 +831,25 @@ def main(arguments):
     # tracker = TrackerDatabase()
 
 
+
+def main():
+    """Main entry point for this utility"""
+    parser = process_args()
+    args = parser.parse_args()
+    try:
+        tracker(args)
+    except TrackerDatabaseNotFoundError:
+        # logger.error('Tracker Database not found')
+        parser.print_help()
+    except ShowDatabaseNotFoundError:
+        # logger.error('Show Database not found')
+        parser.print_help()
+    except InvalidUsageError:
+        # logger.error('Invalid usage. No databases found, and option passed to'
+        #     ' operate on databses')
+        parser.print_help()
+    # finally:
+        # sys.exit()
+
 if __name__ == '__main__':
-    sys.exit(main(sys.argv))
+    sys.exit(main())
