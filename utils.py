@@ -247,6 +247,35 @@ def check_for_databases(database_dir):
     return DatabaseExistence(showdb_exists, tracker_exists)
 
 
+def extract_season_episode_from_str(s):
+    """Extract the season and episode from a string."""
+    m = check_for_season_episode_code(s)
+
+    if not m:
+        return 1, 1
+
+    return int(m.group(1)), int(m.group(2))
+
+
+def check_for_season_episode_code(s):
+    """Check if a season-episode code is present.
+
+    Args:
+        s: string
+
+    Returns:
+        m: regex match object if season-episode code present.
+        False otherwise.
+    """
+    se_pattern = r'[sS](\d{1,2})[eE](\d{1,2})'
+
+    m = re.search(se_pattern, s)
+
+    if not m:
+        return False
+
+    return m
+
 
 class Deserializer:
     def __init__(self, deserialized_data):

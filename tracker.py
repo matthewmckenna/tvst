@@ -3,6 +3,7 @@
 Utility to keep track of TV shows
 """
 import argparse
+import collections
 import datetime
 import json
 # import logging
@@ -29,7 +30,9 @@ from exceptions import (
 )
 from utils import (
     check_for_databases,
+    check_for_season_episode_code,
     Deserializer,
+    extract_season_episode_from_str,
     EncodeShow,
     extract_episode_details,
     get_show_database_entry,
@@ -59,6 +62,7 @@ class Database(RegisteredSerializable):
 
         self._shows = {} if _shows is None else _shows
 
+    # Perhaps we can use this again somehow
     def create_db_from_watchlist(self, watchlist_path):
         """Create a database from a watchlist"""
         watchlist = ProcessWatchlist(watchlist_path)
@@ -76,6 +80,10 @@ class Database(RegisteredSerializable):
 
         with open(self.path_to_db, 'w', encoding='utf-8') as f:
             json.dump(self, f, cls=EncodeShow, indent=indent, sort_keys=True)
+
+    def __iter__(self):
+        return iter(self._shows)
+
 
 
 class ShowDatabase(Database):
@@ -168,16 +176,16 @@ class TrackerDatabase(Database):
         #     show_db = load_database(self.path_to_showdb)
         #     self._add_next_prev_episode(show_db)
 
-    def add_show(self, show_details):
-        show = TrackedShow(
-            title=show_details.show_title,
-            _next_episode=show_details.next_episode,
-            notes=show_details.notes,
-        )
-        self._shows[show.ltitle] = show
-
     def create_tracker_from_watchlist(self, watchlist_path, showdb=None):
         """Create a tracker database from a watchlist"""
+        watchlist = ProcessWatchlist(watchlist_path)
+        for show in watchlist:
+            self.add_tracked_show(show, showdb)
+
+        # self.create_db_from_watchlist(watchlist_path)
+
+    def add_tracked_show(self, show_details, showdb=None):
+        """Add a show to the trackerdb"""
         if showdb is None:
             # Attempt to load the ShowDatabase from the common database
             # directory
@@ -189,24 +197,28 @@ class TrackerDatabase(Database):
                 # TODO: Log this
                 pass
 
-        self.create_db_from_watchlist(watchlist_path)
-        self._add_next_prev_episode(showdb)
+        show = TrackedShow(
+            title=show_details.show_title,
+            _next_episode=show_details.next_episode,
+            notes=show_details.notes,
+        )
+        self._shows[show.ltitle] = show
 
-    def _add_next_prev_episode(self, showdb):
-        """Add the next and previous episodes for the tracked show"""
-        # TODO: Do I really have to call .values()
-        for show in self._shows.values():
-            try:
-                show._set_next_prev(showdb)
-            except OutOfBoundsError:
-                pass  # TODO: Add proper handling
+        # Set the next and prev episode attributes
+        self._shows[show.ltitle]._set_next_prev(showdb)
+
+    # def _add_next_prev_episode(self, showdb):
+    #     """Add the next and previous episodes for the tracked show"""
+    #     # TODO: Do I really have to call .values()
+    #     for show in self._shows.values():
+    #         try:
+    #             show._set_next_prev(showdb)
+    #         except OutOfBoundsError:
+    #             pass  # TODO: Add proper handling
 
     def _short_codes(self):
         for s in self._shows:
             yield self._shows[s].short_code
-
-    def __iter__(self):
-        return iter(self._shows)
 
     def __contains__(self, key):
         full_title = key in self._shows
@@ -315,61 +327,68 @@ class TrackedShow(ShowDetails):
         self._prev = _prev
         self._next_episode = _next_episode
 
-    def _get_season_episode_from_str(self):
-        """Extract a season and episode from a string."""
-        pattern = r'[sS](\d{1,2})[eE](\d{1,2})'
-        m = re.search(pattern, self._next_episode)
-
-        if not m:
-            raise SeasonEpisodeParseError
-
-        season = int(m.group(1))
-        episode = int(m.group(2))
-        return season, episode
-
     def _set_next_prev(self, show_database):
-        """Set up the next and previous episodes of a TrackedShow"""
+        """Set up the next and previous episodes of a TrackedShow.
 
-        show_db = get_show_database_entry(show_database, title=self.ltitle)
+        Raises:
+            ShowNotFoundError: if show not found in the showdb
+            OutOfBoundsError: if season or episode is not found in the showdb
+                entry for the show, then this exception will be raised.
+        """
+        # We don't need the entire showdb, so just get the entry for the
+        # show we're interested in.
+        showdb_entry = get_show_database_entry(show_database, title=self.ltitle)
 
-        season, episode = self._get_season_episode_from_str()
+        # If an invalid season-episode code is found, this function returns
+        # season=1, episode=1
+        season, episode = extract_season_episode_from_str(self._next_episode)
+
         # Account for zero-indexing.
-        # The first season or first episode will should be referenced as
-        # episode zero.
         season, episode = season-1, episode-1
 
-        self._validate_season_episode(show_db, season, episode)
+        self._validate_season_episode(showdb_entry, season, episode)
 
-        self._next = show_db._seasons[season]._episodes[episode]
+        self._next = showdb_entry._seasons[season]._episodes[episode]
 
-        if season == 0 and episode == 0:
-            return
-        elif episode == 0:
-            season -= 1
-            episode = show_db._seasons[season].episodes_this_season - 1
+        if season > 0:
+            if episode == 0:
+                season -= 1
+                episode = showdb_entry._seasons[season].episodes_this_season - 1
+            else:
+                episode -= 1
+
+        # If season or episode is non-zero, then a previous episode exists
+        if season or episode:
+            self._prev = showdb_entry._seasons[season]._episodes[episode]
         else:
-            episode -= 1
+            self._prev = None
 
-        self._prev = show_db._seasons[season]._episodes[episode]
+    def inc_dec_episode(self, show_database, inc=False, dec=False, by=1):
+        """Increment or decrement the next episode for a show.
 
-    def inc_dec_episode(self, show_database, inc=False, dec=False):
-        """x"""
+        Raises:
+            ShowNotFoundError: if show not found in the showdb
+        """
         if inc and dec:
-            raise InvalidOperationError
+            raise InvalidUsageError('Both inc and dec commands were passed.')
 
-        if not (inc and dec):
-            return
+        if not (inc or dec):
+            raise InvalidUsageError('Neither inc nor dec commands were passed.')
 
-        # May raise a ShowNotFoundError
-        show_db = get_show_database_entry(show_database, title=self.ltitle)
+        showdb_entry = get_show_database_entry(show_database, title=self.ltitle)
 
         season, episode = self._adjust_season_episode(inc, dec)
+
+        if inc:
+            self.inc_episode(showdb_entry, season, episode, by)
+        else:
+            self.dec_episode(showdb_entry, season, episode, by)
 
     def _adjust_season_episode(self, inc, dec):
         """Return a zero-index adjusted season and episode"""
         if inc:
             return self._next.season-1, self._next.episode-1
-        elif dec:
+        else:
             try:
                 season, episode = self._prev.season-1, self._prev.episode-1
             except AttributeError:
@@ -379,88 +398,69 @@ class TrackedShow(ShowDetails):
 
             return season, episode
 
-    def _validate_season_episode(self, show_db, season, episode):
+    def _validate_season_episode(self, showdb, season, episode):
         """Check that the season and episode passed are valid."""
 
         try:
-            season = show_db._seasons[season]
+            _ = showdb._seasons[season]
         except IndexError:
-            raise SeasonOutOfBoundsError
+            raise SeasonOutOfBoundsError('Season={!r} is out of bounds.'.format(season))
 
         try:
-            episode = season._episodes[episode]
+            _ = showdb._seasons[season]._episodes[episode]
         except IndexError:
-            raise EpisodeOutOfBoundsError
+            raise EpisodeOutOfBoundsError('Episode={!r} is out of bounds.'.format(episode))
 
-    def inc_episode(self, show_database, by=1):
+    def inc_episode(self, showdb, season, episode, by=1):
         """Advance the next episode for a tracked show.
 
         Args:
-            show_database: a ShowDatabase
+            showdb: a ShowDatabase entry for the current show
             by: How many episodes to increment from the current
                 episode. Default is to advance by one episode.
 
         Raises:
-            ShowNotFoundError
-            SeasonOutOfBoundsError
-            EpisodeOutOfBoundsError
+            SeasonOutOfBoundsError: invalid season
+            EpisodeOutOfBoundsError: invalid episode
         """
-        # May raise a ShowNotFoundError
-        show_db = get_show_database_entry(show_database, title=self.ltitle)
-
-        season, episode = self._next.season-1, self._next.episode-1
-
         for inc in range(by):
             # Check if the current ('old') next_episode is the season finale
             # If so, the 'new' next_episode will be the next season premiere.
-            if self._next.episode == show_db._seasons[season].episodes_this_season:
+            if self._next.episode == showdb._seasons[season].episodes_this_season:
                 season += 1
                 episode = 0
             else:
                 episode += 1
 
-            self._validate_season_episode(show_db, season, episode)
+            self._validate_season_episode(showdb, season, episode)
 
             self._prev = self._next
-            self._next = show_db._seasons[season]._episodes[episode]
+            self._next = showdb._seasons[season]._episodes[episode]
 
-    def dec_episode(self, show_database, by=1):
+    def dec_episode(self, showdb, season, episode, by=1):
         """Decrement the next episode for a tracked show.
 
         Args:
-            show_database: a ShowDatabase
+            showdb: a ShowDatabase entry for the current show
             by: How many episodes to decrement from the current
                 episode. Default is to decrement by one episode.
-
-        Raises:
-            ShowNotFoundError
-            SeasonOutOfBoundsError
-            EpisodeOutOfBoundsError
         """
-        show_db = get_show_database_entry(show_database, title=self.ltitle)
-
-        try:
-            season, episode = self._prev.season-1, self._prev.episode-1
-        except AttributeError:
-            # self.prev is None
-            season, episode = 0, 0
-
         for dec in range(by):
             if season == 0 and episode == 0:
-                self._next = show_db._seasons[season]._episodes[episode]
+                self._next = showdb._seasons[season]._episodes[episode]
                 break  # TODO: Perhaps raise something
             # Decrement over a season boundary, for season > 0.
             # Set the episode to the finale of the previous season
             elif episode == 0:
                 season -= 1
-                episode = show_db._seasons[season].episodes_this_season-1
+                episode = showdb._seasons[season].episodes_this_season-1
             else:
                 episode -= 1
 
-            self._validate_season_episode(show_db, season, episode)
+            self._validate_season_episode(showdb, season, episode)
 
             self._next = self._prev
-            self._prev = show_db._seasons[season]._episodes[episode]
+            self._prev = showdb._seasons[season]._episodes[episode]
 
     def __repr__(self):
         return ('TrackedShow(title={self.title!r}, _next_episode={self._next_episode!r}, '
@@ -681,10 +681,10 @@ def process_args():
     parser_add.set_defaults(func=command_add)
 
     parser_dec.add_argument('show', **show_kwargs)
-    parser_dec.set_defaults(func=command_dec)
+    parser_dec.set_defaults(func=command_inc_dec)
 
     parser_inc.add_argument('show', **show_kwargs)
-    parser_inc.set_defaults(func=command_inc)
+    parser_inc.set_defaults(func=command_inc_dec)
 
     parser_next.add_argument('show', **show_kwargs)
     parser_next.set_defaults(func=command_next)
@@ -725,42 +725,77 @@ def command_watchlist():
     showdb = ShowDatabase()
 
 
-def command_add(args):
-    if args.note:
-        print('add note="{}" to show="{}"'.format(args.note, args.show))
-    if args.short_code:
-        print('add short_code="{}" to show="{}"'.format(args.short_code, args.show))
+def command_add(args, showdb, trackerdb):
+    """Add a show or a detail to a show"""
+    # Is show in the showdb?
+    if args['ltitle'] not in showdb:
+        Show = collections.namedtuple('Show', ('show_title'))
+        try:
+            showdb.add_show(Show(args['show']))
+        except:  # TODO: Catch whatever exception can be raised here
+            pass
+        else:
+            # Perhaps this write should be elsewhere?
+            showdb.write_db()
 
-    if not args.note and not args.short_code:
-        print('Add show={}'.format(args.show))
+    if args['ltitle'] in trackerdb:
+        if not args['note'] and not args['short_code']:
+            raise ShowAlreadyTrackedError('<{!r}> is already tracked'.format(args['show']))
+    else:
+        # Show is not in the tracker
+        TrackedShow = collections.namedtuple(
+            'TrackedShow',
+            ('show_title', 'next_episode', 'notes'),
+        )
+        show = TrackedShow(args['show'], args['next_episode'], args['note'])
+        trackerdb.add_tracked_show(show, showdb)
+
+    if args['note']:
+        trackerdb._shows[args['ltitle']].notes = args['note']
+    if args['short_code']:
+        trackerdb._shows[args['ltitle']].short_code = args['short_code']
 
 
-def command_dec(args, showdb, trackerdb):
-    """Decrement the next episode for a show."""
-    ltitle = lunderize(args.show)
-    if ltitle not in trackerdb:
-        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(ltitle))
+# def command_dec(args, showdb, trackerdb):
+#     """Decrement the next episode for a show."""
+#     if args['ltitle'] not in trackerdb:
+#         raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
 
-    print(trackerdb._shows[ltitle]._next)
-    title = trackerdb._shows[ltitle].title
-    trackerdb._shows[ltitle].dec_episode(showdb, args.by)
-    # logger.info('Decrement {} by {} episodes'.format(title, args.by))
-    print(trackerdb._shows[ltitle]._next)
-    # print('Dec. {} by {} episodes'.format(args.show, args.by))
+#     title = trackerdb._shows[args['ltitle']].title
+#     trackerdb._shows[args['ltitle']].dec_episode(showdb, args.by)
+#     # logger.info('Decrement {} by {} episodes'.format(title, args.by))
 
 
-def command_inc(args, showdb, trackerdb):
-    """Increment the next episode for a show."""
-    ltitle = lunderize(args.show)
-    if ltitle not in trackerdb:
-        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(ltitle))
+# def command_inc(args, showdb, trackerdb):
+#     """Increment the next episode for a show."""
+#     if args['ltitle'] not in trackerdb:
+#         raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
 
-    print(trackerdb._shows[ltitle]._next)
-    title = trackerdb._shows[ltitle].title
-    trackerdb._shows[ltitle].inc_episode(showdb, args.by)
-    # logger.info('Increment {} by {} episodes'.format(title, args.by))
-    print(trackerdb._shows[ltitle]._next)
-    # print('Dec. {} by {} episodes'.format(args.show, args.by))
+#     title = trackerdb._shows[args['ltitle']].title
+#     trackerdb._shows[args['ltitle']].inc_episode(showdb, args['by'])
+#     # logger.info('Increment {} by {} episodes'.format(title, args.by))
+
+
+def command_inc_dec(args, showdb, trackerdb):
+    """Increment or decrement the next episode for a show."""
+    inc = False
+    dec = False
+
+    if args['ltitle'] not in trackerdb:
+        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
+
+    # Need to lookup the real title
+    # Need to use the correct lunderized title to do the lookup in the first place!
+    title = trackerdb._shows[args['ltitle']].title
+
+    if args['sub_command'] == 'inc':
+        inc = True
+    else:
+        dec = True
+
+    trackerdb._shows[args['ltitle']].inc_dec_episode(showdb, inc=inc, dec=dec, by=args['by'])
+    # logger.info('{sub_command}. {show} by {by} episodes'.format(**args))
+    print('{sub_command}. {show} by {by} episodes'.format(**args))
 
 
 def command_next(args):
@@ -777,8 +812,9 @@ def command_next(args):
 
 def tracker(args):
     """Main body of code for application"""
-    # TODO: Remove this
-    # print(args)
+    # For most of the actions, we will be modifying the tracker, and we
+    # should save any changes made
+    save = True
 
     db_check = check_for_databases(args.database_dir)
     # TODO: Remove this
@@ -801,27 +837,44 @@ def tracker(args):
     if not (args.list or args.watchlist or args.sub_command):
         raise InvalidUsageError('Databases present, but no other valid commands passed')
 
+
     # Order of precedence:
     # 1. List
     # 2. Watchlist
     # 3. Subcommands
     if args.list:
+        # We haven't modified the tracker, so we shouldn't write to it
+        save = False
         tabulator([trackerdb._shows[key] for key in trackerdb])
     elif args.watchlist:
         # watchlist handling
         pass
     else:
-        # All subcommands involve a SHOW argument.
-        # Need to sanitize this input
-        print(args)
-        ltitle = lunderize(args.show)
-        # print(ltitle)
-        try:
-            args.func(args, showdb, trackerdb)
-        except:
-            pass
+        arguments = vars(args)
 
-    # attempt to write the database here
+        # Check if there is a season-episode code passed in the show
+        # field, e.g., 'game of thrones s06e10'
+        if check_for_season_episode_code(arguments['show']):
+            show_split = arguments['show'].split()
+            arguments['show'] = ' '.join(show_split[:-1])
+            arguments['next_episode'] = show_split[-1]
+        else:
+            # If no next episode was passed in the show field, then default
+            # to the show premiere, i.e., 's01e01'
+            arguments['next_episode'] = 's01e01'
+
+        arguments['ltitle'] = lunderize(arguments['show'])
+        # arguments['rtitle'] = sanitize_title(arguments['show'])
+        if not (db_check.showdb_exists and db_check.tracker_exists):
+            showdb = ShowDatabase(arguments['database_dir'])
+            trackerdb = TrackerDatabase(arguments['database_dir'])
+
+        print(arguments)
+        # sys.exit()
+        args.func(arguments, showdb, trackerdb)
+
+    if save:
+        trackerdb.write_db()
 
     # if not os.path.exists(showdb)
     # list_episodes()
@@ -848,8 +901,6 @@ def main():
         # logger.error('Invalid usage. No databases found, and option passed to'
         #     ' operate on databses')
         parser.print_help()
-    # finally:
-        # sys.exit()
 
 if __name__ == '__main__':
     sys.exit(main())
