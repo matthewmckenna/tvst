@@ -70,7 +70,7 @@ def tabulator(shows):
     header_lengths = [len(h) for h in headers]
     max_show_title_length = max(len(s.title) for s in shows)
     max_ep_title_length = max(len(s._next.title) for s in shows)
-    max_entry_lengths = [max_ep_title_length, 6, 6, max_ep_title_length]
+    max_entry_lengths = [max_show_title_length, 6, 6, max_ep_title_length]
     column_widths = [max(h, e) for h, e in zip(header_lengths, max_entry_lengths)]
 
     # print()

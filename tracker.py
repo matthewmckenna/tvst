@@ -1,4 +1,4 @@
-#!/usr/env/bin python
+#!/usr/env/bin python3
 """
 Utility to keep track of TV shows
 """
@@ -204,17 +204,12 @@ class TrackerDatabase(Database):
         )
         self._shows[show.ltitle] = show
 
+        # Set the tracked show .title attribute to the 'official' show title
+        # retrieved from the API request
+        self._shows[show.ltitle].title = showdb._shows[show.ltitle].title
+
         # Set the next and prev episode attributes
         self._shows[show.ltitle]._set_next_prev(showdb)
-
-    # def _add_next_prev_episode(self, showdb):
-    #     """Add the next and previous episodes for the tracked show"""
-    #     # TODO: Do I really have to call .values()
-    #     for show in self._shows.values():
-    #         try:
-    #             show._set_next_prev(showdb)
-    #         except OutOfBoundsError:
-    #             pass  # TODO: Add proper handling
 
     def _short_codes(self):
         for s in self._shows:
@@ -222,7 +217,7 @@ class TrackerDatabase(Database):
 
     def __contains__(self, key):
         full_title = key in self._shows
-        short_code = key in self._short_codes()
+        short_code = key.upper() in self._short_codes()
         return full_title or short_code
 
     def __repr__(self):
@@ -727,6 +722,7 @@ def command_watchlist():
 
 def command_add(args, showdb, trackerdb):
     """Add a show or a detail to a show"""
+
     # Is show in the showdb?
     if args['ltitle'] not in showdb:
         Show = collections.namedtuple('Show', ('show_title'))
@@ -752,9 +748,16 @@ def command_add(args, showdb, trackerdb):
 
     if args['note']:
         trackerdb._shows[args['ltitle']].notes = args['note']
-    if args['short_code']:
-        trackerdb._shows[args['ltitle']].short_code = args['short_code']
 
+
+    if args['short_code']:
+        upper_sc = args['short_code'].upper()
+        if upper_sc in trackerdb._short_codes():
+            raise ShortCodeAlreadyAssignedError('Short-code <{}> is already in use'.format(
+                upper_sc
+                )
+            )
+        trackerdb._shows[args['ltitle']].short_code = upper_sc
 
 # def command_dec(args, showdb, trackerdb):
 #     """Decrement the next episode for a show."""
@@ -863,14 +866,22 @@ def tracker(args):
             # to the show premiere, i.e., 's01e01'
             arguments['next_episode'] = 's01e01'
 
-        arguments['ltitle'] = lunderize(arguments['show'])
         # arguments['rtitle'] = sanitize_title(arguments['show'])
         if not (db_check.showdb_exists and db_check.tracker_exists):
             showdb = ShowDatabase(arguments['database_dir'])
             trackerdb = TrackerDatabase(arguments['database_dir'])
 
-        print(arguments)
-        # sys.exit()
+        # Save an uppercase version of the show
+        ushow = arguments['show'].upper()
+
+        # Check to see if the show field is really a short_code
+        # TODO: Perhaps a mapping dict would be more suitable for this
+        if ushow in trackerdb._short_codes():
+            for ltitle, s in trackerdb._shows.items():
+                if s.short_code == ushow:
+                    arguments['show'] = s.title
+
+        arguments['ltitle'] = lunderize(arguments['show'])
         args.func(arguments, showdb, trackerdb)
 
     if save:
