@@ -666,11 +666,6 @@ def process_args():
         help='increment the next episode of a show',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser_next = subparsers.add_parser(
-        'next',
-        help='print details for the next episode',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
 
     parser_add.add_argument('show', **show_kwargs)
     parser_add.set_defaults(func=command_add)
@@ -680,9 +675,6 @@ def process_args():
 
     parser_inc.add_argument('show', **show_kwargs)
     parser_inc.set_defaults(func=command_inc_dec)
-
-    parser_next.add_argument('show', **show_kwargs)
-    parser_next.set_defaults(func=command_next)
 
     parser_add.add_argument(
         # '-n',
@@ -749,7 +741,6 @@ def command_add(args, showdb, trackerdb):
     if args['note']:
         trackerdb._shows[args['ltitle']].notes = args['note']
 
-
     if args['short_code']:
         upper_sc = args['short_code'].upper()
         if upper_sc in trackerdb._short_codes():
@@ -758,25 +749,6 @@ def command_add(args, showdb, trackerdb):
                 )
             )
         trackerdb._shows[args['ltitle']].short_code = upper_sc
-
-# def command_dec(args, showdb, trackerdb):
-#     """Decrement the next episode for a show."""
-#     if args['ltitle'] not in trackerdb:
-#         raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
-
-#     title = trackerdb._shows[args['ltitle']].title
-#     trackerdb._shows[args['ltitle']].dec_episode(showdb, args.by)
-#     # logger.info('Decrement {} by {} episodes'.format(title, args.by))
-
-
-# def command_inc(args, showdb, trackerdb):
-#     """Increment the next episode for a show."""
-#     if args['ltitle'] not in trackerdb:
-#         raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
-
-#     title = trackerdb._shows[args['ltitle']].title
-#     trackerdb._shows[args['ltitle']].inc_episode(showdb, args['by'])
-#     # logger.info('Increment {} by {} episodes'.format(title, args.by))
 
 
 def command_inc_dec(args, showdb, trackerdb):
@@ -798,19 +770,6 @@ def command_inc_dec(args, showdb, trackerdb):
 
     trackerdb._shows[args['ltitle']].inc_dec_episode(showdb, inc=inc, dec=dec, by=args['by'])
     # logger.info('{sub_command}. {show} by {by} episodes'.format(**args))
-    print('{sub_command}. {show} by {by} episodes'.format(**args))
-
-
-def command_next(args):
-    # >> Next episodes for 2 shows:
-    # Show             | Next episode
-    # ------------------------------------
-    # Game of Thrones  | S06 E04
-    # Supernatural     | S11 E21
-    print('Next episode for \'{}\': S{} E{})')
-    return '< {self.title} (S{self.season:02d}E{self.episode:02d}) >'.format(
-        self=self
-    )
 
 
 def tracker(args):
@@ -820,8 +779,6 @@ def tracker(args):
     save = True
 
     db_check = check_for_databases(args.database_dir)
-    # TODO: Remove this
-    # print(db_check)
 
     if db_check.showdb_exists and db_check.tracker_exists:
         showdb, trackerdb = load_all_dbs(args.database_dir)
@@ -841,10 +798,6 @@ def tracker(args):
         raise InvalidUsageError('Databases present, but no other valid commands passed')
 
 
-    # Order of precedence:
-    # 1. List
-    # 2. Watchlist
-    # 3. Subcommands
     if args.list:
         # We haven't modified the tracker, so we shouldn't write to it
         save = False
@@ -866,7 +819,6 @@ def tracker(args):
             # to the show premiere, i.e., 's01e01'
             arguments['next_episode'] = 's01e01'
 
-        # arguments['rtitle'] = sanitize_title(arguments['show'])
         if not (db_check.showdb_exists and db_check.tracker_exists):
             showdb = ShowDatabase(arguments['database_dir'])
             trackerdb = TrackerDatabase(arguments['database_dir'])
@@ -887,13 +839,7 @@ def tracker(args):
     if save:
         trackerdb.write_db()
 
-    # if not os.path.exists(showdb)
-    # list_episodes()
     # test_update_database()
-    # watchlist = ProcessWatchlist()
-    # show_database = ShowDatabase()
-    # tracker = TrackerDatabase()
-
 
 
 def main():

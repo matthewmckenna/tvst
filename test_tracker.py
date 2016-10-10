@@ -352,7 +352,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
         """Test that we detect an invalid season"""
         tracked_show = tracker.TrackedShow(
             title='Game of Thrones',
-            _next_episode='S08E01'
+            _next_episode='S10E01'
         )
         with self.assertRaises(tracker.SeasonOutOfBoundsError):
             tracked_show._set_next_prev(self.database)
