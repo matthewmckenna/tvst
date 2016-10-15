@@ -144,7 +144,7 @@ class ProcessWatchlist:
             ('show_title', 'next_episode', 'notes')
         )
 
-        return NextEpisode(show, next_episode, notes)
+        return NextEpisode(show, next_episode.upper(), notes)
 
 
 def extract_episode_details(season, episode_response):

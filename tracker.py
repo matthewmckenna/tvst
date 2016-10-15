@@ -22,6 +22,7 @@ from exceptions import (
     OutOfBoundsError,
     SeasonEpisodeParseError,
     SeasonOutOfBoundsError,
+    ShowAlreadyTrackedError,
     ShowDatabaseNotFoundError,
     ShowNotFoundError,
     ShowNotTrackedError,
@@ -124,13 +125,14 @@ class ShowDatabase(Database):
         # FIXME: Hidden IO
         try:
             show.populate_seasons()
-        except FoundFilmError:
+        except FoundFilmError as e:
             # TODO: Handle this properly
             # Current idea is to go to imdb.com, do a search with request_title
             # Then scrape the response page for *SHOW* (TV Series).
             # Extract the IMDB ID and then perform another search on
             # omdbapi.com with the direct ID
-            print('Film found with the same name. Try adding a year with request.')
+            # logger.excpetion(e)
+            raise
         else:
             self._shows[show.ltitle] = show
 
@@ -310,7 +312,7 @@ class TrackedShow(ShowDetails):
         title=None,
         ltitle=None,
         request_title=None,
-        _next_episode='s01e01',
+        _next_episode='S01E01',
         notes=None,
         short_code=None,
         _next=None,
@@ -489,9 +491,13 @@ class Show(ShowDetails):
         with requests.Session() as s:
             response = s.get('http://www.omdbapi.com', params=payload)
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            # TODO: Enable logging
+            # logger.exception(e)
+            pass
 
-        # TODO: Add error checking to response object
         return response.json()
 
     def populate_seasons(self, update_title=True):
@@ -504,7 +510,10 @@ class Show(ShowDetails):
 
         # We got a film of the same name
         if show_details['Type'] == 'movie':
-            raise FoundFilmError
+            raise FoundFilmError(
+                'Found film <{!r}> with the same title '
+                'as the requested show.'.format(self.request_title)
+            )
 
         total_seasons = int(show_details['totalSeasons'])
 
@@ -714,14 +723,17 @@ def command_watchlist():
 
 def command_add(args, showdb, trackerdb):
     """Add a show or a detail to a show"""
-
     # Is show in the showdb?
     if args['ltitle'] not in showdb:
         Show = collections.namedtuple('Show', ('show_title'))
         try:
             showdb.add_show(Show(args['show']))
-        except:  # TODO: Catch whatever exception can be raised here
-            pass
+        except ShowNotFoundError as e:  # TODO: Catch whatever exception can be raised here
+            # logger.exception(e)
+            raise
+        except FoundFilmError as f:
+            # logger.exception(f)
+            raise
         else:
             # Perhaps this write should be elsewhere?
             showdb.write_db()
@@ -813,11 +825,11 @@ def tracker(args):
         if check_for_season_episode_code(arguments['show']):
             show_split = arguments['show'].split()
             arguments['show'] = ' '.join(show_split[:-1])
-            arguments['next_episode'] = show_split[-1]
+            arguments['next_episode'] = show_split[-1].upper()
         else:
             # If no next episode was passed in the show field, then default
-            # to the show premiere, i.e., 's01e01'
-            arguments['next_episode'] = 's01e01'
+            # to the show premiere, i.e., 'S01E01'
+            arguments['next_episode'] = 'S01E01'
 
         if not (db_check.showdb_exists and db_check.tracker_exists):
             showdb = ShowDatabase(arguments['database_dir'])

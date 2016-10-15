@@ -492,7 +492,7 @@ class ProcessWatchlistTestCase(unittest.TestCase):
 
     def test_split_line_next_episode_correct(self):
         """Test that the next episode string is returned correctly"""
-        self.assertEqual(self.NextEpisode.next_episode, 's01e10')
+        self.assertEqual(self.NextEpisode.next_episode, 'S01E10')
 
     def test_split_line_notes_correct(self):
         """Test that the notes for the episode are returned correctly"""

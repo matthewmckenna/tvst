@@ -22,6 +22,10 @@ class TrackerError(Exception):
     pass
 
 
+class ShowAlreadyTrackedError(TrackerError):
+    pass
+
+
 class ShowNotTrackedError(TrackerError):
     pass
 
