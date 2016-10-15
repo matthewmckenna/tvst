@@ -1,4 +1,7 @@
 # import datetime
+import collections
+from contextlib import redirect_stdout
+import io
 import json
 import os
 # from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -476,6 +479,125 @@ class UtilsTestCase(unittest.TestCase):
         )
 
         self.assertEqual(episode_details['ratings']['imdb'], None)
+
+    def test_tabulator(self):
+        """Test that we correctly tabulate output"""
+        # A little setup required
+        path_to_db = os.path.join('example', '.showdb.json')
+        showdb = tracker.load_database(path_to_db)
+
+        expected_output = (
+        "Show              Next episode   Rating   Title                 \n"
+        "----------------  -------------  -------  --------------------  \n"
+        "Game of Thrones   S06E10         9.9      The Winds of Winter   \n"
+        )
+
+        show = tracker.TrackedShow(title='game of thrones', _next_episode='s06e10')
+        show.title = showdb._shows[show.ltitle].title
+        show._set_next_prev(showdb)
+
+        tracked_shows = [show]
+        f = io.StringIO()
+
+        with redirect_stdout(f):
+            utils.tabulator(tracked_shows)
+
+        s = f.getvalue()
+        self.assertEqual(s, expected_output)
+
+    def test_get_show_database_entry(self):
+        """Test that we retrieve a show from the database correctly"""
+        show_title = 'game_of_thrones'
+        path_to_db = os.path.join('example', '.showdb.json')
+        showdb = tracker.load_database(path_to_db)
+        showdb_entry = utils.get_show_database_entry(showdb, show_title)
+        self.assertIsInstance(showdb_entry, tracker.Show)
+
+    def test_get_show_database_entry_non_existent_show(self):
+        """Test that we retrieve a show from the database correctly"""
+        show_title = 'The Adventures of Moonboy and Patchface'
+        path_to_db = os.path.join('example', '.showdb.json')
+        showdb = tracker.load_database(path_to_db)
+
+        with self.assertRaises(tracker.ShowNotFoundError):
+            utils.get_show_database_entry(showdb, show_title)
+
+    def test_check_file_exists(self):
+        """Test that we return True for a found file"""
+        directory = 'example'
+        f = '.showdb.json'
+        self.assertTrue(utils.check_file_exists(directory, f))
+
+    def test_check_file_exists_non_existent_file(self):
+        """Test that we return False for a non-existent file"""
+        directory = 'example'
+        f = '.top_secret'
+        self.assertFalse(utils.check_file_exists(directory, f))
+
+    def test_check_file_exists_non_existent_dir(self):
+        """Test that we return False for a non-existent directory"""
+        directory = 'this-directory-does-not-exist'
+        f = '.top_secret'
+        self.assertFalse(utils.check_file_exists(directory, f))
+
+    def test_season_episode_code_present(self):
+        """Test that we return True when a season-episode code is present"""
+        s = 's01e01'
+        self.assertTrue(utils.check_for_season_episode_code(s))
+
+    def test_season_episode_code_present_mix_case(self):
+        """Test that we return True when a season-episode code is present"""
+        s = 'S01e01'
+        self.assertTrue(utils.check_for_season_episode_code(s))
+
+    def test_season_episode_code_present_not_zero_padded(self):
+        """Test that we return True when a season-episode code is present"""
+        s = 's1e1'
+        self.assertTrue(utils.check_for_season_episode_code(s))
+
+    def test_season_episode_code_present_longer_string(self):
+        """Test that we return True when a season-episode code is present"""
+        s = 'game of thrones s01e01'
+        self.assertTrue(utils.check_for_season_episode_code(s))
+
+    def test_season_episode_code_not_present(self):
+        """Test that we return True when a season-episode code is present"""
+        s = 'game of thrones'
+        self.assertFalse(utils.check_for_season_episode_code(s))
+
+    def test_extract_season_episode_code_present(self):
+        """Test we extract the correct season-episode code from a string."""
+        s = 'game of thrones s06e10'
+        expected_output = (6, 10)
+        self.assertEqual(expected_output, utils.extract_season_episode_from_str(s))
+
+    def test_extract_season_episode_code_nott_present(self):
+        """Test we extract the correct season-episode code from a string."""
+        s = 'game of thrones'
+        expected_output = (1, 1)
+        self.assertEqual(expected_output, utils.extract_season_episode_from_str(s))
+
+
+class DBCheckTestCase(unittest.TestCase):
+    """Small test case for checking for database existence"""
+    @classmethod
+    def setUpClass(cls):
+        cls.DatabaseExistence = collections.namedtuple(
+            'DatabaseExistence',
+            ('showdb_exists', 'tracker_exists')
+        )
+
+    def test_check_for_databases_both_present(self):
+        """Test we return a namedtuple with the expected flags"""
+        database_dir = 'example'
+        db_check = utils.check_for_databases(database_dir)
+        self.assertEqual(self.DatabaseExistence(True, True), db_check)
+
+    def test_check_for_databases_none_present(self):
+        """Test we return a namedtuple with the expected flags"""
+        database_dir = 'this-directory-does-not-exist'
+        db_check = utils.check_for_databases(database_dir)
+        self.assertEqual(self.DatabaseExistence(False, False), db_check)
 
 
 class ProcessWatchlistTestCase(unittest.TestCase):

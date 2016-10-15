@@ -193,7 +193,7 @@ def get_show_database_entry(show_database, title):
     try:
         return show_database._shows[title]
     except KeyError:
-        raise ShowNotFoundError
+        raise ShowNotFoundError('Show <{!r}> not found in show database'.format(title))
 
 
 def check_season_bounds(next_episode, show_details):
@@ -232,12 +232,8 @@ def check_for_databases(database_dir):
         Namedtuple with True/False flags based on whether
         or not the two databases exist.
     """
-    # if database_dir is None:
-    #     database_dir = os.path.join(os.path.expanduser('~'), '.showtracker')
     showdb_exists = check_file_exists(database_dir, '.showdb.json')
     tracker_exists = check_file_exists(database_dir, '.tracker.json')
-    # showdb_exists = check_file_exists(database_dir, 'test1')
-    # tracker_exists = check_file_exists(database_dir, 'test3')
 
     DatabaseExistence = collections.namedtuple(
         'DatabaseExistence',

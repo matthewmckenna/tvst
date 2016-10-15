@@ -244,18 +244,6 @@ class DecArgumentTestCase(TempTrackerSetupTestCase):
             expected_next_season
         )
 
-    @unittest.skip('No short-code added')
-    def test_dec_using_short_code(self):
-        """Test that the tracker can be decremented using a short-code"""
-        args = self.parser.parse_args(['--database-dir=example', 'dec', 'got'])
-        expected_next_episode = 9
-        tracker.tracker(args)
-        _, trackerdb = tracker.load_all_dbs(self.database_dir)
-        self.assertEqual(
-            trackerdb._shows['game_of_thrones']._next.season,
-            expected_next_episode
-        )
-
 
 class IncArgumentTestCase(TempTrackerSetupTestCase):
     """Test case for Inc argument"""
@@ -304,17 +292,40 @@ class IncArgumentTestCase(TempTrackerSetupTestCase):
             expected_next_season
         )
 
-    @unittest.skip('No short-code added')
+
+class IncDecShortCodeTestCase(TempTrackerSetupTestCase):
+    def setUp(self):
+        super().setUp()
+        _, trackerdb = tracker.load_all_dbs(self.database_dir)
+        trackerdb._shows['game_of_thrones'].short_code = 'GOT'
+        trackerdb.write_db()
+
     def test_inc_using_short_code(self):
         """Test that the tracker can be incremented using a short-code"""
         args = self.parser.parse_args(['--database-dir=example', 'inc', 'got'])
-        expected_next_episode = 9
+        show = 'game of thrones'
+        expected_tracked_show = tracker.TrackedShow(
+            title=show,
+            _next_episode='S07E01',
+            short_code='got',
+        )
         tracker.tracker(args)
         _, trackerdb = tracker.load_all_dbs(self.database_dir)
-        self.assertEqual(
-            trackerdb._shows['game_of_thrones']._next.season,
-            expected_next_episode
+        self.assertEqual(trackerdb._shows['game_of_thrones'], expected_tracked_show)
+
+    def test_dec_using_short_code(self):
+        """Test that the tracker can be decremented using a short-code"""
+        args = self.parser.parse_args(['--database-dir=example', 'dec', 'got'])
+        show = 'game of thrones'
+        expected_tracked_show = tracker.TrackedShow(
+            title=show,
+            _next_episode='S06E09',
+            short_code='got',
         )
+        tracker.tracker(args)
+        _, trackerdb = tracker.load_all_dbs(self.database_dir)
+        self.assertEqual(trackerdb._shows['game_of_thrones'], expected_tracked_show)
+
 
 
 if __name__ == '__main__':
