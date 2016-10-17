@@ -61,11 +61,12 @@ class AddShowTestCase(TempTrackerSetupTestCase):
         show = 'house s07e21'
         args = self.parser.parse_args(['--database-dir=example', 'add', show])
         expected_tracked_show = tracker.TrackedShow(
-            title='house',
+            title='House',
             _next_episode='S07E21',
         )
         tracker.tracker(args)
-        _, trackerdb = tracker.load_all_dbs(self.database_dir)
+        showdb, trackerdb = tracker.load_all_dbs(self.database_dir)
+        expected_tracked_show._set_next_prev(showdb)
         self.assertEqual(expected_tracked_show, trackerdb._shows['house'])
 
     def test_add_show_bad_season_episode_code(self):
@@ -94,11 +95,11 @@ class AddShowTestCase(TempTrackerSetupTestCase):
 
     def test_add_show_short_code_and_note(self):
         """Test adding a show, short-code and note at the same time"""
-        show = 'supernatural'
+        show = 'Supernatural'
         note = 'returns 14/10/2016'
         expected_tracked_show = tracker.TrackedShow(
             title=show,
-            short_code='spn',
+            short_code='SPN',
             notes=note,
         )
         args = self.parser.parse_args(
@@ -112,8 +113,9 @@ class AddShowTestCase(TempTrackerSetupTestCase):
             ]
         )
         tracker.tracker(args)
-        _, trackerdb = tracker.load_all_dbs(self.database_dir)
-        self.assertEqual(expected_tracked_show, trackerdb._shows[show])
+        showdb, trackerdb = tracker.load_all_dbs(self.database_dir)
+        expected_tracked_show._set_next_prev(showdb)
+        self.assertEqual(expected_tracked_show, trackerdb._shows['supernatural'])
 
     def test_add_short_code_using_short_option(self):
         """Test that the short-option works for adding a short-code"""
@@ -303,27 +305,29 @@ class IncDecShortCodeTestCase(TempTrackerSetupTestCase):
     def test_inc_using_short_code(self):
         """Test that the tracker can be incremented using a short-code"""
         args = self.parser.parse_args(['--database-dir=example', 'inc', 'got'])
-        show = 'game of thrones'
+        show = 'Game of Thrones'
         expected_tracked_show = tracker.TrackedShow(
             title=show,
             _next_episode='S07E01',
-            short_code='got',
+            short_code='GOT',
         )
         tracker.tracker(args)
-        _, trackerdb = tracker.load_all_dbs(self.database_dir)
+        showdb, trackerdb = tracker.load_all_dbs(self.database_dir)
+        expected_tracked_show._set_next_prev(showdb)
         self.assertEqual(trackerdb._shows['game_of_thrones'], expected_tracked_show)
 
     def test_dec_using_short_code(self):
         """Test that the tracker can be decremented using a short-code"""
         args = self.parser.parse_args(['--database-dir=example', 'dec', 'got'])
-        show = 'game of thrones'
+        show = 'Game of Thrones'
         expected_tracked_show = tracker.TrackedShow(
             title=show,
             _next_episode='S06E09',
-            short_code='got',
+            short_code='GOT',
         )
         tracker.tracker(args)
-        _, trackerdb = tracker.load_all_dbs(self.database_dir)
+        showdb, trackerdb = tracker.load_all_dbs(self.database_dir)
+        expected_tracked_show._set_next_prev(showdb)
         self.assertEqual(trackerdb._shows['game_of_thrones'], expected_tracked_show)
 
 

@@ -118,9 +118,13 @@ class ProcessWatchlist:
         try:
             with open(self.path_to_watchlist, 'r') as f:
                 for line in f:
-                    yield self.split_line(line.strip())
+                    line = line.strip()
+                    if line:
+                        yield self.split_line(line)
         except FileNotFoundError:
-            raise WatchlistNotFoundError
+            raise WatchlistNotFoundError(
+                'Could not locate file={!r}'.format(self.path_to_watchlist)
+            )
 
     def split_line(self, line):
         """Split an input line into a show, the next episode and notes (if any).
@@ -137,7 +141,11 @@ class ProcessWatchlist:
         else:
             details = line[0]
 
-        show, next_episode = details.rstrip().rsplit(maxsplit=1)
+        if check_for_season_episode_code(details):
+            show, next_episode = details.rstrip().rsplit(maxsplit=1)
+        else:
+            show = details.rstrip()
+            next_episode = 'S01E01'
 
         NextEpisode = collections.namedtuple(
             'NextEpisode',
@@ -251,6 +259,11 @@ def extract_season_episode_from_str(s):
         return 1, 1
 
     return int(m.group(1)), int(m.group(2))
+
+
+def season_episode_str_from_show(show):
+    """Return a season-episode code in the form SXXEYY"""
+    return 'S{:02d}E{:02d}'.format(show._next.season, show._next.episode)
 
 
 def check_for_season_episode_code(s):

@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+from tempfile import TemporaryDirectory, NamedTemporaryFile
 import unittest
 
 # import requests
@@ -173,6 +175,122 @@ class TrackerDBLoadTestCase(unittest.TestCase):
         os.remove(os.path.join(cls.testdir, '.tracker.json'))
         os.remove(os.path.join(cls.testdir, '.showdb.json'))
         os.rmdir(cls.testdir)
+
+
+class WatchlistOptionTestCase(unittest.TestCase):
+    """Test case for adding shows via --watchlist option"""
+    @classmethod
+    def setUpClass(cls):
+        cls.parser = tracker.process_args()
+        cls.database_dir = 'example'
+        cls.path_to_tracker = os.path.join(cls.database_dir, '.tracker.json')
+        cls.path_to_showdb = os.path.join(cls.database_dir, '.showdb.json')
+
+
+    def test_create_new_tracker_with_watchlist(self):
+        """Test we can create a new trackerdb with a watchlist"""
+        with TemporaryDirectory() as dirname:
+            watchlist_path = 'test_watchlist.txt'
+            args = self.parser.parse_args(
+                [
+                    '--database-dir={}'.format(dirname),
+                    '--watchlist={}'.format(watchlist_path),
+                ]
+            )
+            tracker.tracker(args)
+            _, trackerdb = tracker.load_all_dbs(dirname)
+            self.assertIsInstance(trackerdb, tracker.TrackerDatabase)
+
+    def test_add_show_in_showdb_to_existing_tracker_with_watchlist(self):
+        """Test adding of a show which is in the showdb to an existing tracker"""
+        expected_tracked_show = tracker.TrackedShow('House', _next_episode='S08E01')
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            sdb.write_db()
+            tdb.write_db()
+
+            with NamedTemporaryFile('w+t') as f:
+                f.write('house s08e01')
+                f.seek(0)
+                watchlist_path = f.name
+                args = self.parser.parse_args(
+                    [
+                        '--database-dir={}'.format(dirname),
+                        '--watchlist={}'.format(watchlist_path),
+                    ]
+                )
+                tracker.tracker(args)
+            showdb, trackerdb = tracker.load_all_dbs(dirname)
+            expected_tracked_show._set_next_prev(showdb)
+            self.assertEqual(trackerdb._shows['house'], expected_tracked_show)
+
+    def test_add_show_via_api_request_to_existing_tracker_with_watchlist(self):
+        """Test adding of a show which is not in the showdb to an existing tracker"""
+        expected_tracked_show = tracker.TrackedShow('Narcos')
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            sdb.write_db()
+            tdb.write_db()
+
+            with NamedTemporaryFile('w+t') as f:
+                f.write('narcos S01E01')
+                f.seek(0)
+                watchlist_path = f.name
+                args = self.parser.parse_args(
+                    [
+                        '--database-dir={}'.format(dirname),
+                        '--watchlist={}'.format(watchlist_path),
+                    ]
+                )
+                tracker.tracker(args)
+            showdb, trackerdb = tracker.load_all_dbs(dirname)
+            expected_tracked_show._set_next_prev(showdb)
+            self.assertEqual(trackerdb._shows['narcos'], expected_tracked_show)
+
+    def test_note_preserved_update_existing_tracked_show(self):
+        """Test that notes are preserved when updating an existing show via watchlist"""
+        expected_tracked_show = tracker.TrackedShow(
+            title='Person of Interest',
+            notes='new season',
+            _next_episode='S02E08',
+        )
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            sdb.write_db()
+            tdb.write_db()
+
+            with NamedTemporaryFile('w+t') as f:
+                f.write('person of interest s02e08')
+                f.seek(0)
+                watchlist_path = f.name
+                args = self.parser.parse_args(
+                    [
+                        '--database-dir={}'.format(dirname),
+                        '--watchlist={}'.format(watchlist_path),
+                    ]
+                )
+                tracker.tracker(args)
+            showdb, trackerdb = tracker.load_all_dbs(dirname)
+            expected_tracked_show._set_next_prev(showdb)
+            self.assertEqual(trackerdb._shows['person_of_interest'], expected_tracked_show)
 
 
 if __name__ == '__main__':
