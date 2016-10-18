@@ -60,3 +60,6 @@ class ShowDatabaseNotFoundError(DatabaseError):
 
 class InvalidUsageError(Exception):
     pass
+
+class EmptyFileError(Exception):
+    pass

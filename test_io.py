@@ -292,6 +292,39 @@ class WatchlistOptionTestCase(unittest.TestCase):
             expected_tracked_show._set_next_prev(showdb)
             self.assertEqual(trackerdb._shows['person_of_interest'], expected_tracked_show)
 
+    def test_watchlist_not_found(self):
+        """Test that we correctly raise a WatchlistNotFoundError"""
+        watchlist_path = 'watchlist_which_does_not_exist.txt'
+        args = self.parser.parse_args(
+            [
+                '--database-dir={}'.format(self.database_dir),
+                '--watchlist={}'.format(watchlist_path),
+            ]
+        )
+
+        with self.assertRaises(tracker.WatchlistNotFoundError):
+            tracker.tracker(args)
+
+    def test_empty_watchlist(self):
+        """Test that we detect an empty file"""
+        with NamedTemporaryFile('w+t') as f:
+            # Write some whitespace to the watchlist
+            f.write('\n\n\n   \t\r\n  \n \n \r     \t    ')
+            # Move back to the beginning of the file
+            f.seek(0)
+            watchlist_path = f.name
+            args = self.parser.parse_args(
+                [
+                    '--database-dir={}'.format(self.database_dir),
+                    '--watchlist={}'.format(watchlist_path),
+                ]
+            )
+            with self.assertRaises(tracker.EmptyFileError):
+                tracker.tracker(args)
+
+    def test_malformed_line_in_watchlist(self):
+        self.assertTrue(False)
+
 
 if __name__ == '__main__':
     unittest.main()

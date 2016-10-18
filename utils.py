@@ -3,7 +3,7 @@ import json
 import os
 import re
 
-from exceptions import ShowNotFoundError, WatchlistNotFoundError
+from exceptions import ShowNotFoundError, WatchlistNotFoundError, EmptyFileError
 
 
 def sanitize_title(title):
@@ -83,7 +83,7 @@ def tabulator(shows):
     print()
 
     for show in shows:
-        se_string = 'S{:02d}E{:02d}'.format(show._next.season, show._next.episode)
+        se_string = season_episode_str_from_show(show)
 
         if show._next.ratings['imdb'] is None:
             rating = 'N/A'
@@ -117,6 +117,13 @@ class ProcessWatchlist:
         """
         try:
             with open(self.path_to_watchlist, 'r') as f:
+                contents = f.read()
+                # Go back to the beginning of the file for subsequent iteration
+                f.seek(0)
+                if contents.isspace():
+                    raise EmptyFileError(
+                        'Watchlist={!r} is empty'.format(self.path_to_watchlist)
+                    )
                 for line in f:
                     line = line.strip()
                     if line:

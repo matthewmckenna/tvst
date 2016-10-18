@@ -16,6 +16,7 @@ import requests
 from exceptions import (
     DatabaseNotFoundError,
     EpisodeOutOfBoundsError,
+    EmptyFileError,
     FoundFilmError,
     InvalidOperationError,
     InvalidUsageError,
@@ -27,7 +28,7 @@ from exceptions import (
     ShowNotFoundError,
     ShowNotTrackedError,
     TrackerDatabaseNotFoundError,
-    # WatchlistNotFoundError,
+    WatchlistNotFoundError,
 )
 from utils import (
     check_for_databases,
@@ -893,7 +894,14 @@ def tracker(args):
         save = False
         tabulator([trackerdb._shows[key] for key in trackerdb])
     elif args.watchlist:
-        handle_watchlist(args, showdb, trackerdb)
+        try:
+            handle_watchlist(args, showdb, trackerdb)
+        except WatchlistNotFoundError as e:
+            # logger.exception(e)
+            raise
+        except EmptyFileError as f:
+            # logger.exception(f)
+            raise
     else:
         # Convert the argparse Namespace object into a dict so that we can directly
         # modify some of the arguments
@@ -938,6 +946,9 @@ def main():
         parser.print_help()
     except ShowDatabaseNotFoundError:
         # logger.error('Show Database not found')
+        parser.print_help()
+    except (WatchlistNotFoundError, EmptyFileError) as e:
+        # logger.exception(e)
         parser.print_help()
     except InvalidUsageError:
         # logger.error('Invalid usage. No databases found, and option passed to'

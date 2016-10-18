@@ -577,6 +577,13 @@ class UtilsTestCase(unittest.TestCase):
         expected_output = (1, 1)
         self.assertEqual(expected_output, utils.extract_season_episode_from_str(s))
 
+    def test_season_episode_str_from_show(self):
+        """Test that we can build a season-episode code from a TrackedShow instance"""
+        path_to_showdb = os.path.join('example', '.showdb.json')
+        show = tracker.TrackedShow(title='game of thrones', _next_episode='s6e9')
+        showdb = tracker.load_database(path_to_showdb)
+        show._set_next_prev(showdb)
+        self.assertEqual('S06E09', utils.season_episode_str_from_show(show))
 
 class DBCheckTestCase(unittest.TestCase):
     """Small test case for checking for database existence"""
