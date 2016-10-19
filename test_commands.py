@@ -3,6 +3,7 @@ import os
 from contextlib import redirect_stdout
 import io
 import shutil
+from tempfile import TemporaryDirectory
 import unittest
 
 import tracker
@@ -330,6 +331,120 @@ class IncDecShortCodeTestCase(TempTrackerSetupTestCase):
         expected_tracked_show._set_next_prev(showdb)
         self.assertEqual(trackerdb._shows['game_of_thrones'], expected_tracked_show)
 
+
+class RemoveShowTestCase(unittest.TestCase):
+    """Test case for removing shows and details."""
+    @classmethod
+    def setUpClass(cls):
+        cls.parser = tracker.process_args()
+        cls.database_dir = 'example'
+        cls.path_to_tracker = os.path.join(cls.database_dir, '.tracker.json')
+        cls.path_to_showdb = os.path.join(cls.database_dir, '.showdb.json')
+
+    def test_remove_show(self):
+        """Test that we correctly remove a show from the tracker"""
+        show = 'game_of_thrones'
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            sdb.write_db()
+            tdb.write_db()
+
+            args = self.parser.parse_args(
+                [
+                    '--database-dir={}'.format(dirname),
+                    'rm',
+                    show,
+                ]
+            )
+            tracker.tracker(args)
+            _, trackerdb = tracker.load_all_dbs(dirname)
+            self.assertTrue(show not in trackerdb)
+
+    def test_remove_untracked_show(self):
+        """Test that we raise an exception if we try to remove a show that is not tracked"""
+        show = 'supernatural'
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            sdb.write_db()
+            tdb.write_db()
+
+            args = self.parser.parse_args(
+                [
+                    '--database-dir={}'.format(dirname),
+                    'rm',
+                    show,
+                ]
+            )
+            with self.assertRaises(tracker.ShowNotTrackedError):
+                tracker.tracker(args)
+
+    def test_remove_short_code(self):
+        """Test removing a short-code from a show works as expected."""
+        show = 'game_of_thrones'
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            # Add a short-code
+            tdb._shows[show].short_code = 'GOT'
+            sdb.write_db()
+            tdb.write_db()
+
+            args = self.parser.parse_args(
+                [
+                    '--database-dir={}'.format(dirname),
+                    'rm',
+                    show,
+                    '--short-code',
+                ]
+            )
+            tracker.tracker(args)
+            _, trackerdb = tracker.load_all_dbs(dirname)
+            self.assertIsNone(trackerdb._shows[show].short_code)
+
+    def test_remove_notes(self):
+        """Test removing notes from a show works as expected."""
+        show = 'game_of_thrones'
+        with TemporaryDirectory() as dirname:
+            # Some setup
+            shutil.copy(self.path_to_tracker, dirname)
+            shutil.copy(self.path_to_showdb, dirname)
+
+            sdb, tdb = tracker.load_all_dbs(dirname)
+            sdb.path_to_db = os.path.join(dirname, '.showdb.json')
+            tdb.path_to_db = os.path.join(dirname, '.tracker.json')
+            # Add a note
+            tdb._shows[show].notes = 'download light of the seven theme'
+            sdb.write_db()
+            tdb.write_db()
+
+            args = self.parser.parse_args(
+                [
+                    '--database-dir={}'.format(dirname),
+                    'rm',
+                    show,
+                    '--note',
+                ]
+            )
+            tracker.tracker(args)
+            _, trackerdb = tracker.load_all_dbs(dirname)
+            self.assertIsNone(trackerdb._shows[show].notes)
 
 
 if __name__ == '__main__':

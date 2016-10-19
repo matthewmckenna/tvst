@@ -723,6 +723,12 @@ def process_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
+    parser_rm = subparsers.add_parser(
+        'rm',
+        help='remove info from an existing tracked show',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
     parser_add.add_argument('show', **show_kwargs)
     parser_add.set_defaults(func=command_add)
 
@@ -731,6 +737,9 @@ def process_args():
 
     parser_inc.add_argument('show', **show_kwargs)
     parser_inc.set_defaults(func=command_inc_dec)
+
+    parser_rm.add_argument('show', **show_kwargs)
+    parser_rm.set_defaults(func=command_rm)
 
     parser_add.add_argument(
         # '-n',
@@ -759,6 +768,19 @@ def process_args():
         default=1,
         metavar='B',
         type=int,
+    )
+
+    parser_rm.add_argument(
+        '--note',
+        help='add a note to the show',
+        action='store_true',
+    )
+
+    parser_rm.add_argument(
+        '-c',
+        '--short-code',
+        help='add a short_code to the show',
+        action='store_true',
     )
 
     return parser  #.parse_args()
@@ -860,6 +882,27 @@ def command_inc_dec(args, showdb, trackerdb):
     # logger.info('{sub_command}. {show} by {by} episodes'.format(**args))
 
 
+def command_rm(args, showdb, trackerdb):
+    """Remove a show, or remove a detail from a show"""
+    if args['ltitle'] not in trackerdb:
+        # logger.info('Show=<%r> not found in tracker', args['ltitle'])
+        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
+
+    if args['note']:
+        # logger.info('Remove note for show=<%r>. Previously note=%r',
+            # args['ltitle'], trackerdb._shows[args['ltitle']].notes)
+        trackerdb._shows[args['ltitle']].notes = None
+    if args['short_code']:
+        # logger.info('Remove short-code for show=<%r>. Previously short-code=%r',
+            # args['ltitle'], trackerdb._shows[args['ltitle']].short_code)
+        trackerdb._shows[args['ltitle']].short_code = None
+
+    if not (args['note'] or args['short_code']):
+        # If neither a note nor short_code were passed then remove the show
+        # logger.info('Remove show=<%r> from tracker', args['ltitle')
+        del trackerdb._shows[args['ltitle']]
+
+
 def tracker(args):
     """Main body of code for application"""
     # For most of the actions, we will be modifying the tracker, and we
@@ -949,6 +992,10 @@ def main():
         parser.print_help()
     except (WatchlistNotFoundError, EmptyFileError) as e:
         # logger.exception(e)
+        parser.print_help()
+    except ShowNotTrackedError as f:
+        # logger.exception(e)
+        print(f)
         parser.print_help()
     except InvalidUsageError:
         # logger.error('Invalid usage. No databases found, and option passed to'
