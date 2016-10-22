@@ -7,7 +7,14 @@ from tempfile import TemporaryDirectory
 import unittest
 
 import tracker
-# from exceptions import InvalidUsageError
+from exceptions import (
+    FoundFilmError,
+    InvalidUsageError,
+    SeasonOutOfBoundsError,
+    ShowAlreadyTrackedError,
+    ShowNotFoundError,
+    ShowNotTrackedError,
+)
 import utils
 
 
@@ -74,7 +81,7 @@ class AddShowTestCase(TempTrackerSetupTestCase):
         """Test that we raise an OutofBoundsError for a bad season-episode code"""
         show = 'house s99e99'
         args = self.parser.parse_args(['--database-dir=example', 'add', show])
-        with self.assertRaises(tracker.SeasonOutOfBoundsError):
+        with self.assertRaises(SeasonOutOfBoundsError):
             tracker.tracker(args)
 
     def test_add_show_and_short_code(self):
@@ -157,21 +164,21 @@ class AddShowTestCase(TempTrackerSetupTestCase):
         """Test trying to add an existing show to the tracker"""
         show = 'game of thrones'
         args = self.parser.parse_args(['--database-dir=example', 'add', show,])
-        with self.assertRaises(tracker.ShowAlreadyTrackedError):
+        with self.assertRaises(ShowAlreadyTrackedError):
             tracker.tracker(args)
 
     def test_add_non_existent_show(self):
         """Test we catch attempting to add a non-existent show"""
         show = 'The Adventures of Moonboy and Patchface'
         args = self.parser.parse_args(['--database-dir=example', 'add', show])
-        with self.assertRaises(tracker.ShowNotFoundError):
+        with self.assertRaises(ShowNotFoundError):
             tracker.tracker(args)
 
     def test_add_show_same_title_as_film(self):
         """Test we handle the case of getting a response for a film"""
         show = 'fargo'
         args = self.parser.parse_args(['--database-dir=example', 'add', show])
-        with self.assertRaises(tracker.FoundFilmError):
+        with self.assertRaises(FoundFilmError):
             tracker.tracker(args)
 
 
@@ -195,7 +202,7 @@ class ListOptionTestCase(CommandLineArgsTestCase):
 
     def test_list_fails_no_tracker(self):
         """Test that --list fails when no .tracker.json is present"""
-        with self.assertRaises(tracker.InvalidUsageError):
+        with self.assertRaises(InvalidUsageError):
             args = self.parser.parse_args(['--list', '--database-dir=does-not-exist'])
             tracker.tracker(args)
 
@@ -387,7 +394,7 @@ class RemoveShowTestCase(unittest.TestCase):
                     show,
                 ]
             )
-            with self.assertRaises(tracker.ShowNotTrackedError):
+            with self.assertRaises(ShowNotTrackedError):
                 tracker.tracker(args)
 
     def test_remove_short_code(self):

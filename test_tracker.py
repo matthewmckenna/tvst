@@ -7,6 +7,11 @@ import os
 # from tempfile import NamedTemporaryFile, TemporaryDirectory
 import unittest
 
+from exceptions import (
+    EpisodeOutOfBoundsError,
+    SeasonOutOfBoundsError,
+    ShowNotFoundError,
+)
 import tracker
 import utils
 
@@ -15,42 +20,6 @@ import utils
 # TODO: ShowDatabaseTestCase
 # TODO: TrackerDatabaseTestCase
 # TODO: Separate utils test cases into another test module
-
-# class TrackerTestCase(unittest.TestCase):
-#     """Test case for Tracker class"""
-#     def setUp(self):
-#         pass
-#
-#     def tearDown(self):
-#         pass
-#
-#     def test_good_init(self):
-#         """Test that self.path_to_tracker is correctly initialised"""
-#         t = tracker.Tracker('./test.json')
-#         self.assertEqual(t.path_to_tracker, './test.json')
-#
-#     def test_no_file_exists(self):
-#         """Test that Tracker correctly raises an IOError"""
-#         with self.assertRaises(FileNotFoundError):
-#             tracker.Tracker('./does_not_exist.json')
-#
-#     def test_next_episode_non_verbose(self):
-#         """Test that the non-verbose output is as expected."""
-#         t = tracker.Tracker('./test.json')
-#         expected_msg = 'Next episode for Supernatural: S05 E22'
-#         self.assertEqual(t.get_episode_details('supernatural'), expected_msg)
-#
-#     def test_previous_episode_non_verbose(self):
-#         """Test that the non-verbose output is as expected."""
-#         t = tracker.Tracker('./test.json')
-#         expected_msg = 'Previous episode for Supernatural: S05 E21'
-#         self.assertEqual(t.get_episode_details('supernatural', which='previous'), expected_msg)
-#
-#     def test_next_episode_no_such_show(self):
-#         """Test that we raise a ShowNotTrackedError when the show is not being tracked."""
-#         t = tracker.Tracker('./test.json')
-#         with self.assertRaises(tracker.ShowNotTrackedError):
-#             t.get_episode_details('soopernatural')
 
 
 class GoodEpisodeInitTestCase(unittest.TestCase):
@@ -348,7 +317,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
             title='The Adventures of Moonboy and Patchface',
             _next_episode='S01E01'
         )
-        with self.assertRaises(tracker.ShowNotFoundError):
+        with self.assertRaises(ShowNotFoundError):
             tracked_show._set_next_prev(self.database)
 
     def test_inc_season_out_of_bounds(self):
@@ -357,7 +326,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
             title='Game of Thrones',
             _next_episode='S10E01'
         )
-        with self.assertRaises(tracker.SeasonOutOfBoundsError):
+        with self.assertRaises(SeasonOutOfBoundsError):
             tracked_show._set_next_prev(self.database)
 
     def test_inc_episode_out_of_bounds(self):
@@ -366,7 +335,7 @@ class TrackedShowPrevNextEpisodeTestCase(unittest.TestCase):
             title='Game of Thrones',
             _next_episode='S06E11'
         )
-        with self.assertRaises(tracker.EpisodeOutOfBoundsError):
+        with self.assertRaises(EpisodeOutOfBoundsError):
             tracked_show._set_next_prev(self.database)
 
     def test_dec_episode_season_finale_next_rating(self):
@@ -519,7 +488,7 @@ class UtilsTestCase(unittest.TestCase):
         path_to_db = os.path.join('example', '.showdb.json')
         showdb = tracker.load_database(path_to_db)
 
-        with self.assertRaises(tracker.ShowNotFoundError):
+        with self.assertRaises(ShowNotFoundError):
             utils.get_show_database_entry(showdb, show_title)
 
     def test_check_file_exists(self):

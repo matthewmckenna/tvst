@@ -7,6 +7,12 @@ import unittest
 # import requests
 
 import tracker
+from exceptions import (
+    EmptyFileError,
+    FoundFilmError,
+    ShowNotFoundError,
+    WatchlistNotFoundError,
+    )
 # import utils
 
 
@@ -25,13 +31,13 @@ class IOShowTestCase(unittest.TestCase):
     def test_show_does_not_exist(self):
         """Test that we raise a show not found error"""
         show = tracker.Show(title='The Adventures of Moonboy and Patchface')
-        with self.assertRaises(tracker.ShowNotFoundError):
+        with self.assertRaises(ShowNotFoundError):
             show.populate_seasons()
 
     def test_got_film_with_same_name(self):
         """Test that we recognise when we get a film instead of a show"""
         show = tracker.Show(title='Fargo')
-        with self.assertRaises(tracker.FoundFilmError):
+        with self.assertRaises(FoundFilmError):
             show.populate_seasons()
 
 
@@ -59,7 +65,7 @@ class ShowDBTestCase(unittest.TestCase):
 
     def test_get_show_db_entry_show_not_present(self):
         """Check that we raise a ShowNotFoundError if the show is not in the db"""
-        with self.assertRaises(tracker.ShowNotFoundError):
+        with self.assertRaises(ShowNotFoundError):
             tracker.get_show_database_entry(
                 self.show_db,
                 'mr_robot'
@@ -302,7 +308,7 @@ class WatchlistOptionTestCase(unittest.TestCase):
             ]
         )
 
-        with self.assertRaises(tracker.WatchlistNotFoundError):
+        with self.assertRaises(WatchlistNotFoundError):
             tracker.tracker(args)
 
     def test_empty_watchlist(self):
@@ -319,7 +325,7 @@ class WatchlistOptionTestCase(unittest.TestCase):
                     '--watchlist={}'.format(watchlist_path),
                 ]
             )
-            with self.assertRaises(tracker.EmptyFileError):
+            with self.assertRaises(EmptyFileError):
                 tracker.tracker(args)
 
     def test_malformed_line_in_watchlist(self):

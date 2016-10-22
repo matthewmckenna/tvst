@@ -1,5 +1,7 @@
 import collections
 import json
+import logging
+import logging.config
 import os
 import re
 
@@ -130,7 +132,7 @@ class ProcessWatchlist:
                         yield self.split_line(line)
         except FileNotFoundError:
             raise WatchlistNotFoundError(
-                'Could not locate file={!r}'.format(self.path_to_watchlist)
+                'Could not locate watchlist file={!r}'.format(self.path_to_watchlist)
             )
 
     def split_line(self, line):
@@ -379,3 +381,51 @@ class EncodeShow(json.JSONEncoder):
             key = '__{}__'.format(obj.__class__.__name__)
             return {key: obj.__dict__}
         return json.JSONEncoder.default(self, obj)
+
+
+def logging_init(filename, debug=False, append=False, console=False):
+    if filename:
+        filename = filename.split('.')[0]
+        log_filename = '{}/.{}.log'.format(os.path.abspath('.'), filename)
+    else:
+        log_filename = None
+
+    configure_logging(debug=debug, append=append, log_filename=log_filename, console=console)
+
+
+def configure_logging(
+# TODO: Remvoe sys.path usage here
+        # path='{}/log_cfg.json'.format(sys.path[0]),
+        path='log_cfg.json',
+        debug=False,
+        append=False,
+        log_filename=None,
+        console=False,
+):
+    """
+    Setup logging configuration
+    """
+    default_level = logging.INFO
+
+    if os.path.exists(path):
+        try:
+            with open(path, 'r') as f:
+                config = json.load(f)
+        except ValueError:
+            # Invalid JSON configuration file
+            raise
+
+        if log_filename:
+            config['handlers']['debug_file_handler']['filename'] = log_filename
+        if debug:
+            config['root']['level'] = "DEBUG"
+        if not append:
+            del config['handlers']['debug_file_handler']['maxBytes']
+        if not console:
+            del config['root']['handlers'][0]
+
+        logging.config.dictConfig(config)
+    else:
+        logging.info('Could not find configuration file=%s', path)
+        logging.info('Loading basicConfig with level=%s', default_level)
+        logging.basicConfig(level=default_level)

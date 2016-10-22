@@ -6,7 +6,7 @@ import argparse
 import collections
 import datetime
 import json
-# import logging
+import logging
 import os
 import re
 import sys
@@ -14,21 +14,18 @@ import sys
 import requests
 
 from exceptions import (
-    DatabaseNotFoundError,
+    DatabaseError,
     EpisodeOutOfBoundsError,
-    EmptyFileError,
-    FoundFilmError,
-    InvalidOperationError,
+    FoundFilmError,  # API request related
     InvalidUsageError,
-    OutOfBoundsError,
-    SeasonEpisodeParseError,
     SeasonOutOfBoundsError,
     ShowAlreadyTrackedError,
+    ShortCodeAlreadyAssignedError,
     ShowDatabaseNotFoundError,
-    ShowNotFoundError,
+    ShowNotFoundError,  # API request related
     ShowNotTrackedError,
     TrackerDatabaseNotFoundError,
-    WatchlistNotFoundError,
+    WatchlistError,
 )
 from utils import (
     check_for_databases,
@@ -38,6 +35,7 @@ from utils import (
     EncodeShow,
     extract_episode_details,
     get_show_database_entry,
+    logging_init,
     lunderize,
     ProcessWatchlist,
     RegisteredSerializable,
@@ -47,7 +45,8 @@ from utils import (
     titleize,
 )
 
-# TODO: Add logging
+
+logger = logging.getLogger(__name__)
 # TODO: Retrieve IGN ratings
 # TODO: Retrieve episode synopsis
 
@@ -65,21 +64,22 @@ class Database(RegisteredSerializable):
 
         self._shows = {} if _shows is None else _shows
 
-    # Perhaps we can use this again somehow
     def create_db_from_watchlist(self, watchlist_path):
         """Create a database from a watchlist"""
+        logger.info('Create show database from watchlist=%r', watchlist_path)
         watchlist = ProcessWatchlist(watchlist_path)
         for show in watchlist:
             self.add_show(show)
+
+    def add_show(self, show):
+        raise NotImplementedError
 
     def write_db(self, indent=None):
         """Write database to disk"""
         try:
             os.mkdir(self.database_dir)
         except OSError:
-            # logger.debug('os.mkdir failed: directory=%r already exists',
-            #     self.database_dir)
-            pass  # TODO: Remove pass, and enable logging
+            logger.debug('os.mkdir failed: directory=%r already exists', self.database_dir)
 
         with open(self.path_to_db, 'w', encoding='utf-8') as f:
             json.dump(self, f, cls=EncodeShow, indent=indent, sort_keys=True)
@@ -136,7 +136,7 @@ class ShowDatabase(Database):
             # logger.excpetion(e)
             raise
         else:
-            # logger.info('Add show=%r to showdb', show.ltitle)
+            logger.info('Add show=%r to showdb', show.ltitle)
             self._shows[show.ltitle] = show
 
     def __contains__(self, key):
@@ -183,19 +183,32 @@ class TrackerDatabase(Database):
 
     def create_tracker_from_watchlist(self, watchlist_path, showdb=None):
         """Create a tracker database from a watchlist"""
+        logger.info('Create tracker database from watchlist=%r', watchlist_path)
         watchlist = ProcessWatchlist(watchlist_path)
         for show in watchlist:
             self.add_tracked_show(show, showdb)
 
     def update_tracker_from_watchlist(self, watchlist_path, showdb=None):
         """Update an existing tracker using a watchlist"""
+        logger.info('Update existing tracker from watchlist=%r', watchlist_path)
         watchlist = ProcessWatchlist(watchlist_path)
         for show in watchlist:
             ltitle = lunderize(show.show_title)
             if ltitle in self._shows:
                 # Only want to adjust the next_episode and notes fields
                 if show.notes:
+                    logger.debug('Update note for show=%r. Was %r, now %r',
+                        ltitle,
+                        self._shows[ltitle].notes,
+                        show.notes,
+                    )
                     self._shows[ltitle].notes = show.notes
+                logger.debug(
+                    'Update next_episode field for show=%r. Was %r, now %r.',
+                    ltitle,
+                    self._shows[ltitle]._next_episode,
+                    show.next_episode,
+                )
                 self._shows[ltitle]._next_episode = show.next_episode
                 # Update the next and prev attributes
                 self._shows[ltitle]._set_next_prev(showdb)
@@ -208,23 +221,30 @@ class TrackerDatabase(Database):
         if showdb is None:
             # Attempt to load the ShowDatabase from the common database
             # directory
+            path_to_showdb = os.path.join(os.path.dirname(self.path_to_db), '.showdb.json')
+
             try:
-                showdb = load_database(
-                    os.path.join(os.path.dirname(self.path_to_db), '.showdb.json')
-                )
+                showdb = load_database(path_to_showdb)
             except FileNotFoundError:
-                # TODO: Log this
-                pass
+                raise DatabaseError(
+                    'Could not find show database={}'.format(path_to_showdb)
+                )
 
         show = TrackedShow(
             title=show_details.show_title,
             _next_episode=show_details.next_episode,
             notes=show_details.notes,
         )
+        logger.info('Add show=%r to the tracker database.', show.ltitle)
         self._shows[show.ltitle] = show
 
         # Set the tracked show .title attribute to the 'official' show title
         # retrieved from the API request
+        logger.info(
+            'Update tracked show title from <%r> to <%r>.',
+            self._shows[show.ltitle].title,
+            showdb._shows[show.ltitle].title,
+        )
         self._shows[show.ltitle].title = showdb._shows[show.ltitle].title
 
         # Set the next and prev episode attributes
@@ -254,13 +274,18 @@ class Season(RegisteredSerializable):
         self._episodes.append(episode)
 
     def construct_episode(self, episode_details):
+        """Return an Episode instance."""
         return Episode(**episode_details)
 
     def build_season(self, details):
-        """Build a season of episodes"""
+        """Build a season of episodes.
+
+        Extract the response details which we are interested in, and add
+        Episode instances to this Season instance.
+        """
         season = int(details['Season'])
+
         for episode in details['Episodes']:
-            # ep = self.construct_episode(season, episode)
             episode_details = extract_episode_details(season, episode)
             self.add_episode(self.construct_episode(episode_details))
 
@@ -278,6 +303,7 @@ class Season(RegisteredSerializable):
 
 
 class Episode(RegisteredSerializable):
+    """Small class to represent an Episode of a TV show."""
     def __init__(self, episode, season, title, ratings):
         self.episode = episode
         self.season = season
@@ -535,25 +561,27 @@ class Show(ShowDetails):
         else:
             payload = {'t': self.request_title}
 
+        logger.debug('Make API request with payload=%r', payload)
         with requests.Session() as s:
             response = s.get('http://www.omdbapi.com', params=payload)
 
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            # TODO: Enable logging
-            # logger.exception(e)
-            pass
+            logger.exception(e)
 
         return response.json()
 
-    def populate_seasons(self, update_title=True):
-        # IO
+    def populate_seasons(self):
+        # Make initial API request with show title to get the the total
+        # number of seasons
         show_details = self.request_show_info()
 
         # Response value is returned as a string
         if show_details['Response'] == 'False':
-            raise ShowNotFoundError
+            raise ShowNotFoundError(
+                'Could not find show with title={}'.format(self.request_title)
+            )
 
         # We got a film of the same name
         if show_details['Type'] == 'movie':
@@ -563,18 +591,25 @@ class Show(ShowDetails):
             )
 
         total_seasons = int(show_details['totalSeasons'])
+        logger.debug('Total seasons for show <%r>: %r', self.request_title, total_seasons)
 
-        # IO
+        # Make *total_seasons* API requests and pass responses to add_season
+        # to be stored.
         for season in range(1, total_seasons+1):
             season_details = self.request_show_info(season=season)
             self.add_season(season_details)
 
-        # TODO: Wrong place to do this
         # Update the show title
-        if update_title:
-            self.title = season_details['Title']
+        logger.info(
+            'Update show title from <%r> to "official" title retrieved '
+            'from external database <%r>.',
+            self.title,
+            season_details['Title'],
+        )
+        self.title = season_details['Title']
 
     def add_season(self, season_details):
+        """Create a Season instance and store API response."""
         s = Season()
         s.build_season(season_details)
         self._seasons.append(s)
@@ -586,7 +621,7 @@ def load_database(path_to_database):
         with open(path_to_database, 'r') as db:
             deserialized_data = json.load(db)
     except FileNotFoundError:
-        raise DatabaseNotFoundError
+        raise DatabaseError('Could not find database={}'.format(path_to_database))
     else:
         deserializer = Deserializer(deserialized_data)
         database = deserializer.deserialize()
@@ -705,6 +740,13 @@ def process_args():
         default=os.path.join(os.path.expanduser('~'), '.showtracker'),
     )
 
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        help='enable logging to file',
+        action='store_true',
+    )
+
     subparsers = parser.add_subparsers(help='sub-commands', dest='sub_command')
 
     parser_add = subparsers.add_parser(
@@ -791,6 +833,7 @@ def handle_watchlist(args, showdb, trackerdb):
     if not (showdb._shows and trackerdb._shows):
         # Both showdb and trackerdb are empty
         showdb.create_db_from_watchlist(args.watchlist)
+        logger.info('Write show database to disk.')
         showdb.write_db()
         trackerdb.create_tracker_from_watchlist(args.watchlist)
     else:
@@ -803,10 +846,11 @@ def handle_watchlist(args, showdb, trackerdb):
 
         # Find shows which are in the watchlist, but don't exist in showdb
         new_shows = [s for s in wshows if s not in shows]
+        logger.debug('Shows in watchlist, not in show database: %r', new_shows)
 
         for s in new_shows:
             add_show_to_showdb(s, showdb)
-            # showdb.add_show(s)
+        logger.info('Write show database to disk.')
         showdb.write_db()
 
         trackerdb.update_tracker_from_watchlist(args.watchlist, showdb)
@@ -817,11 +861,9 @@ def add_show_to_showdb(title, showdb):
     Show = collections.namedtuple('Show', ('show_title'))
     try:
         showdb.add_show(Show(title))
-    except ShowNotFoundError as e:  # TODO: Catch whatever exception can be raised here
-        # logger.exception(e)
+    except ShowNotFoundError as e:
         raise
     except FoundFilmError as f:
-        # logger.exception(f)
         raise
 
 
@@ -830,6 +872,7 @@ def command_add(args, showdb, trackerdb):
     # Is show in the showdb?
     if args['ltitle'] not in showdb:
         add_show_to_showdb(args['show'], showdb)
+        logger.info('Write show database to disk.')
         showdb.write_db()
 
     if args['ltitle'] in trackerdb:
@@ -837,23 +880,25 @@ def command_add(args, showdb, trackerdb):
             raise ShowAlreadyTrackedError('<{!r}> is already tracked'.format(args['show']))
     else:
         # Show is not in the tracker
-        TrackedShow = collections.namedtuple(
-            'TrackedShow',
+        NextEpisode = collections.namedtuple(
+            'NextEpisode',
             ('show_title', 'next_episode', 'notes'),
         )
-        show = TrackedShow(args['show'], args['next_episode'], args['note'])
+        show = NextEpisode(args['show'], args['next_episode'], args['note'])
+        logger.debug('Create NextEpisode namedtuple=%r', show)
         trackerdb.add_tracked_show(show, showdb)
 
     if args['note']:
+        logger.info('Add note=%r to show=%r.', args['note'], args['ltitle'])
         trackerdb._shows[args['ltitle']].notes = args['note']
 
     if args['short_code']:
         upper_sc = args['short_code'].upper()
         if upper_sc in trackerdb._short_codes():
-            raise ShortCodeAlreadyAssignedError('Short-code <{}> is already in use'.format(
-                upper_sc
-                )
+            raise ShortCodeAlreadyAssignedError(
+                'Short-code <{}> is already in use'.format(upper_sc)
             )
+        logger.info('Add short-code=%r to show=%r.', upper_sc, args['ltitle'])
         trackerdb._shows[args['ltitle']].short_code = upper_sc
 
 
@@ -863,43 +908,47 @@ def command_inc_dec(args, showdb, trackerdb):
     dec = False
 
     if args['ltitle'] not in trackerdb:
-        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
+        raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args['ltitle']))
 
-    # Need to lookup the real title
-    # Need to use the correct lunderized title to do the lookup in the first place!
-    title = trackerdb._shows[args['ltitle']].title
+    show = trackerdb._shows[args['ltitle']]
 
     if args['sub_command'] == 'inc':
         inc = True
     else:
         dec = True
 
-    trackerdb._shows[args['ltitle']].inc_dec_episode(showdb, inc=inc, dec=dec, by=args['by'])
-    # TODO: Set this in the correct location
-    trackerdb._shows[args['ltitle']]._next_episode = season_episode_str_from_show(
-        trackerdb._shows[args['ltitle']]
+    logger.info('%s. show=%r by %r episodes', args['sub_command'], args['ltitle'], args['by'])
+    show.inc_dec_episode(showdb, inc=inc, dec=dec, by=args['by'])
+
+    next_episode = season_episode_str_from_show(show)
+    logger.debug('Update _next_episode attribute for show=%r. Was %r, now %r.',
+        args['ltitle'],
+        show._next_episode,
+        next_episode,
     )
-    # logger.info('{sub_command}. {show} by {by} episodes'.format(**args))
+    # TODO: Set this in the correct location
+    show._next_episode = next_episode
 
 
 def command_rm(args, showdb, trackerdb):
     """Remove a show, or remove a detail from a show"""
     if args['ltitle'] not in trackerdb:
-        # logger.info('Show=<%r> not found in tracker', args['ltitle'])
-        raise ShowNotTrackedError('<{!r}> is not currently tracked'.format(args['ltitle']))
+        raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args['ltitle']))
 
     if args['note']:
-        # logger.info('Remove note for show=<%r>. Previously note=%r',
-            # args['ltitle'], trackerdb._shows[args['ltitle']].notes)
+        logger.info('Remove note for show=<%r>. Previous note=%r.',
+            args['ltitle'], trackerdb._shows[args['ltitle']].notes
+        )
         trackerdb._shows[args['ltitle']].notes = None
     if args['short_code']:
-        # logger.info('Remove short-code for show=<%r>. Previously short-code=%r',
-            # args['ltitle'], trackerdb._shows[args['ltitle']].short_code)
+        logger.info('Remove short-code for show=<%r>. Previous short-code=%r.',
+            args['ltitle'], trackerdb._shows[args['ltitle']].short_code
+        )
         trackerdb._shows[args['ltitle']].short_code = None
 
     if not (args['note'] or args['short_code']):
         # If neither a note nor short_code were passed then remove the show
-        # logger.info('Remove show=<%r> from tracker', args['ltitle')
+        logger.info('Remove show=<%r> from tracker database.', args['ltitle'])
         del trackerdb._shows[args['ltitle']]
 
 
@@ -910,13 +959,18 @@ def tracker(args):
     save = True
 
     db_check = check_for_databases(args.database_dir)
+    logger.debug(db_check)
 
     if db_check.showdb_exists and db_check.tracker_exists:
         showdb, trackerdb = load_all_dbs(args.database_dir)
+        logger.info(
+            'Successfully loaded show database and tracker database '
+            'from database_dir=%r', args.database_dir
+        )
     elif db_check.showdb_exists and not db_check.tracker_exists:
-        raise TrackerDatabaseNotFoundError('Tracker Database not found')
+        raise TrackerDatabaseNotFoundError('Tracker database not found.')
     elif not db_check.showdb_exists and db_check.tracker_exists:
-        raise ShowDatabaseNotFoundError('Show Database not found')
+        raise ShowDatabaseNotFoundError('Show database not found.')
     else:
         # Neither database present
         # Only correct usage at this point is to add a show
@@ -937,14 +991,7 @@ def tracker(args):
         save = False
         tabulator([trackerdb._shows[key] for key in trackerdb])
     elif args.watchlist:
-        try:
-            handle_watchlist(args, showdb, trackerdb)
-        except WatchlistNotFoundError as e:
-            # logger.exception(e)
-            raise
-        except EmptyFileError as f:
-            # logger.exception(f)
-            raise
+        handle_watchlist(args, showdb, trackerdb)
     else:
         # Convert the argparse Namespace object into a dict so that we can directly
         # modify some of the arguments
@@ -956,6 +1003,10 @@ def tracker(args):
             show_split = arguments['show'].split()
             arguments['show'] = ' '.join(show_split[:-1])
             arguments['next_episode'] = show_split[-1].upper()
+            logger.debug(
+                'Extracted season-episode code=%r from show field. '
+                'Show field now contains %r.', arguments['next_episode'], arguments['show']
+            )
         else:
             # If no next episode was passed in the show field, then default
             # to the show premiere, i.e., 'S01E01'
@@ -975,6 +1026,7 @@ def tracker(args):
         args.func(arguments, showdb, trackerdb)
 
     if save:
+        logger.info('Write tracker database to disk.')
         trackerdb.write_db()
 
 
@@ -982,24 +1034,21 @@ def main():
     """Main entry point for this utility"""
     parser = process_args()
     args = parser.parse_args()
+
+    # Pass console=True to enable console log
+    logging_init(os.path.basename(__file__), debug=args.verbose)
+    logger.info('Test')
+    logger.debug(args)
+
     try:
         tracker(args)
-    except TrackerDatabaseNotFoundError:
-        # logger.error('Tracker Database not found')
+    # TODO: Will these errors supercede any of the others?
+    except (DatabaseError, WatchlistError, ShowNotTrackedError, APIRequestError) as e:
+        print('ERROR: {}'.format(e))
+        logger.exception(e)
         parser.print_help()
-    except ShowDatabaseNotFoundError:
-        # logger.error('Show Database not found')
-        parser.print_help()
-    except (WatchlistNotFoundError, EmptyFileError) as e:
-        # logger.exception(e)
-        parser.print_help()
-    except ShowNotTrackedError as f:
-        # logger.exception(e)
-        print(f)
-        parser.print_help()
-    except InvalidUsageError:
-        # logger.error('Invalid usage. No databases found, and option passed to'
-        #     ' operate on databses')
+    except InvalidUsageError as e:
+        logger.exception(e)
         parser.print_help()
 
 if __name__ == '__main__':
