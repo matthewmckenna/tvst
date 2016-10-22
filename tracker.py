@@ -14,6 +14,7 @@ import sys
 import requests
 
 from exceptions import (
+    APIRequestError,
     DatabaseError,
     EpisodeOutOfBoundsError,
     FoundFilmError,  # API request related
@@ -1041,7 +1042,7 @@ def main():
     try:
         tracker(args)
     # TODO: Will these errors supercede any of the others?
-    except (DatabaseError, WatchlistError, ShowNotTrackedError, APIRequestError) as e:
+    except (DatabaseError, WatchlistError, TrackerError, APIRequestError) as e:
         print('ERROR: {}'.format(e))
         logger.exception(e)
         parser.print_help()
