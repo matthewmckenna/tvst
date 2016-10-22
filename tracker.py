@@ -870,36 +870,36 @@ def add_show_to_showdb(title, showdb):
 def command_add(args, showdb, trackerdb):
     """Add a show or a detail to a show"""
     # Is show in the showdb?
-    if args['ltitle'] not in showdb:
-        add_show_to_showdb(args['show'], showdb)
+    if args.ltitle not in showdb:
+        add_show_to_showdb(args.show, showdb)
         logger.info('Write show database to disk.')
         showdb.write_db()
 
-    if args['ltitle'] in trackerdb:
-        if not args['note'] and not args['short_code']:
-            raise ShowAlreadyTrackedError('<{!r}> is already tracked'.format(args['show']))
+    if args.ltitle in trackerdb:
+        if not args.note and not args.short_code:
+            raise ShowAlreadyTrackedError('<{!r}> is already tracked'.format(args.show))
     else:
         # Show is not in the tracker
         NextEpisode = collections.namedtuple(
             'NextEpisode',
             ('show_title', 'next_episode', 'notes'),
         )
-        show = NextEpisode(args['show'], args['next_episode'], args['note'])
+        show = NextEpisode(args.show, args.next_episode, args.note)
         logger.debug('Create NextEpisode namedtuple=%r', show)
         trackerdb.add_tracked_show(show, showdb)
 
-    if args['note']:
-        logger.info('Add note=%r to show=%r.', args['note'], args['ltitle'])
-        trackerdb._shows[args['ltitle']].notes = args['note']
+    if args.note:
+        logger.info('Add note=%r to show=%r.', args.note, args.ltitle)
+        trackerdb._shows[args.ltitle].notes = args.note
 
-    if args['short_code']:
-        upper_sc = args['short_code'].upper()
+    if args.short_code:
+        upper_sc = args.short_code.upper()
         if upper_sc in trackerdb._short_codes():
             raise ShortCodeAlreadyAssignedError(
                 'Short-code <{}> is already in use'.format(upper_sc)
             )
-        logger.info('Add short-code=%r to show=%r.', upper_sc, args['ltitle'])
-        trackerdb._shows[args['ltitle']].short_code = upper_sc
+        logger.info('Add short-code=%r to show=%r.', upper_sc, args.ltitle)
+        trackerdb._shows[args.ltitle].short_code = upper_sc
 
 
 def command_inc_dec(args, showdb, trackerdb):
@@ -907,22 +907,22 @@ def command_inc_dec(args, showdb, trackerdb):
     inc = False
     dec = False
 
-    if args['ltitle'] not in trackerdb:
-        raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args['ltitle']))
+    if args.ltitle not in trackerdb:
+        raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args.ltitle))
 
-    show = trackerdb._shows[args['ltitle']]
+    show = trackerdb._shows[args.ltitle]
 
-    if args['sub_command'] == 'inc':
+    if args.sub_command == 'inc':
         inc = True
     else:
         dec = True
 
-    logger.info('%s. show=%r by %r episodes', args['sub_command'], args['ltitle'], args['by'])
-    show.inc_dec_episode(showdb, inc=inc, dec=dec, by=args['by'])
+    logger.info('%s. show=%r by %r episodes', args.sub_command, args.ltitle, args.by)
+    show.inc_dec_episode(showdb, inc=inc, dec=dec, by=args.by)
 
     next_episode = season_episode_str_from_show(show)
     logger.debug('Update _next_episode attribute for show=%r. Was %r, now %r.',
-        args['ltitle'],
+        args.ltitle,
         show._next_episode,
         next_episode,
     )
@@ -932,24 +932,24 @@ def command_inc_dec(args, showdb, trackerdb):
 
 def command_rm(args, showdb, trackerdb):
     """Remove a show, or remove a detail from a show"""
-    if args['ltitle'] not in trackerdb:
-        raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args['ltitle']))
+    if args.ltitle not in trackerdb:
+        raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args.ltitle))
 
-    if args['note']:
+    if args.note:
         logger.info('Remove note for show=<%r>. Previous note=%r.',
-            args['ltitle'], trackerdb._shows[args['ltitle']].notes
+            args.ltitle, trackerdb._shows[args.ltitle].notes
         )
-        trackerdb._shows[args['ltitle']].notes = None
-    if args['short_code']:
+        trackerdb._shows[args.ltitle].notes = None
+    if args.short_code:
         logger.info('Remove short-code for show=<%r>. Previous short-code=%r.',
-            args['ltitle'], trackerdb._shows[args['ltitle']].short_code
+            args.ltitle, trackerdb._shows[args.ltitle].short_code
         )
-        trackerdb._shows[args['ltitle']].short_code = None
+        trackerdb._shows[args.ltitle].short_code = None
 
-    if not (args['note'] or args['short_code']):
+    if not (args.note or args.short_code):
         # If neither a note nor short_code were passed then remove the show
-        logger.info('Remove show=<%r> from tracker database.', args['ltitle'])
-        del trackerdb._shows[args['ltitle']]
+        logger.info('Remove show=<%r> from tracker database.', args.ltitle)
+        del trackerdb._shows[args.ltitle]
 
 
 def tracker(args):
@@ -993,37 +993,33 @@ def tracker(args):
     elif args.watchlist:
         handle_watchlist(args, showdb, trackerdb)
     else:
-        # Convert the argparse Namespace object into a dict so that we can directly
-        # modify some of the arguments
-        arguments = vars(args)
-
         # Check if there is a season-episode code passed in the show
         # field, e.g., 'game of thrones s06e10'
-        if check_for_season_episode_code(arguments['show']):
-            show_split = arguments['show'].split()
-            arguments['show'] = ' '.join(show_split[:-1])
-            arguments['next_episode'] = show_split[-1].upper()
+        if check_for_season_episode_code(args.show):
+            show_split = args.show.split()
+            args.show = ' '.join(show_split[:-1])
+            args.next_episode = show_split[-1].upper()
             logger.debug(
                 'Extracted season-episode code=%r from show field. '
-                'Show field now contains %r.', arguments['next_episode'], arguments['show']
+                'Show field now contains %r.', args.next_episode, args.show
             )
         else:
             # If no next episode was passed in the show field, then default
             # to the show premiere, i.e., 'S01E01'
-            arguments['next_episode'] = 'S01E01'
+            args.next_episode = 'S01E01'
 
         # Save an uppercase version of the show
-        ushow = arguments['show'].upper()
+        ushow = args.show.upper()
 
         # Check to see if the show field is really a short_code
         # TODO: Perhaps a mapping dict would be more suitable for this
         if ushow in trackerdb._short_codes():
             for ltitle, s in trackerdb._shows.items():
                 if s.short_code == ushow:
-                    arguments['show'] = s.title
+                    args.show = s.title
 
-        arguments['ltitle'] = lunderize(arguments['show'])
-        args.func(arguments, showdb, trackerdb)
+        args.ltitle = lunderize(args.show)
+        args.func(args, showdb, trackerdb)
 
     if save:
         logger.info('Write tracker database to disk.')
@@ -1037,6 +1033,8 @@ def main():
 
     # Pass console=True to enable console log
     logging_init(os.path.basename(__file__), debug=args.verbose)
+    # We don't need to see DEBUG or INFO messages from urllib3
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
     logger.info('Test')
     logger.debug(args)
 
