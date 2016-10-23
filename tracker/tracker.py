@@ -13,7 +13,7 @@ import sys
 
 import requests
 
-from exceptions import (
+from .exceptions import (
     APIRequestError,
     DatabaseError,
     EpisodeOutOfBoundsError,
@@ -25,10 +25,11 @@ from exceptions import (
     ShowDatabaseNotFoundError,
     ShowNotFoundError,  # API request related
     ShowNotTrackedError,
+    TrackerError,
     TrackerDatabaseNotFoundError,
     WatchlistError,
 )
-from utils import (
+from .utils import (
     check_for_databases,
     check_for_season_episode_code,
     Deserializer,

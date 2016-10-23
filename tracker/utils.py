@@ -5,7 +5,7 @@ import logging.config
 import os
 import re
 
-from exceptions import ShowNotFoundError, WatchlistNotFoundError, EmptyFileError
+from .exceptions import ShowNotFoundError, WatchlistNotFoundError, EmptyFileError
 
 
 def sanitize_title(title):

@@ -4,16 +4,13 @@ import shutil
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 import unittest
 
-# import requests
-
-import tracker
-from exceptions import (
+from .context import tracker
+from tracker.exceptions import (
     EmptyFileError,
     FoundFilmError,
     ShowNotFoundError,
     WatchlistNotFoundError,
     )
-# import utils
 
 
 class IOShowTestCase(unittest.TestCase):

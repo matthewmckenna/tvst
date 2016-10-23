@@ -1,4 +1,3 @@
-# import json
 import os
 from contextlib import redirect_stdout
 import io
@@ -6,8 +5,8 @@ import shutil
 from tempfile import TemporaryDirectory
 import unittest
 
-import tracker
-from exceptions import (
+from .context import tracker
+from tracker.exceptions import (
     FoundFilmError,
     InvalidUsageError,
     SeasonOutOfBoundsError,
@@ -15,7 +14,7 @@ from exceptions import (
     ShowNotFoundError,
     ShowNotTrackedError,
 )
-import utils
+from tracker.utils import lunderize
 
 
 class CommandLineArgsTestCase(unittest.TestCase):
@@ -136,7 +135,7 @@ class AddShowTestCase(TempTrackerSetupTestCase):
     def test_add_short_code_existing_show(self):
         """Test adding a short-code to an existing show"""
         show = 'game of thrones'
-        lshow = utils.lunderize(show)
+        lshow = lunderize(show)
         args = self.parser.parse_args(['--database-dir=example', 'add', show, '-c', 'got'])
         tracker.tracker(args)
         _, trackerdb = tracker.load_all_dbs(self.database_dir)
@@ -145,7 +144,7 @@ class AddShowTestCase(TempTrackerSetupTestCase):
     def test_add_note_existing_show(self):
         """Test adding a note to an existing show"""
         show = 'game of thrones'
-        lshow = utils.lunderize(show)
+        lshow = lunderize(show)
         note = 'returns Summer 2017'
         args = self.parser.parse_args(
             [
