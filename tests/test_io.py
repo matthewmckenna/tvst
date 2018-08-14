@@ -20,6 +20,7 @@ class IOShowTestCase(unittest.TestCase):
         show = tracker.Show(title='Game of Thrones')
         with open('got_s01_response.json', 'r') as f:
             expected_response = json.load(f)
+        show.imdb_id = 'tt0944947'
         self.assertDictEqual(
             show.request_show_info(season=1),
             expected_response,
@@ -32,10 +33,10 @@ class IOShowTestCase(unittest.TestCase):
             show.populate_seasons()
 
     def test_got_film_with_same_name(self):
-        """Test that we recognise when we get a film instead of a show"""
+        """Test we pick the TV series instead of the film with the same title"""
         show = tracker.Show(title='Fargo')
-        with self.assertRaises(FoundFilmError):
-            show.populate_seasons()
+        show.populate_seasons()
+        self.assertTrue(show._seasons)
 
 
 class ShowDBTestCase(unittest.TestCase):

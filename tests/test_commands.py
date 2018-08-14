@@ -173,13 +173,6 @@ class AddShowTestCase(TempTrackerSetupTestCase):
         with self.assertRaises(ShowNotFoundError):
             tracker.tracker(args)
 
-    def test_add_show_same_title_as_film(self):
-        """Test we handle the case of getting a response for a film"""
-        show = 'fargo'
-        args = self.parser.parse_args(['--database-dir=example', 'add', show])
-        with self.assertRaises(FoundFilmError):
-            tracker.tracker(args)
-
 
 class ListOptionTestCase(CommandLineArgsTestCase):
     """Test case for list option"""

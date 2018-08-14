@@ -4,12 +4,14 @@ Utility to keep track of TV shows
 """
 import argparse
 import collections
-import datetime
+# import datetime
 import json
 import logging
 import os
-import re
+# import re
+from Queue import Queue  # Python 3 only! module is queue in Python 2
 import sys
+import threading
 
 import requests
 
@@ -44,7 +46,7 @@ from .utils import (
     sanitize_title,
     season_episode_str_from_show,
     tabulator,
-    titleize,
+    # titleize,
 )
 
 
@@ -70,8 +72,9 @@ class Database(RegisteredSerializable):
         """Create a database from a watchlist"""
         logger.info('Create show database from watchlist=%r', watchlist_path)
         watchlist = ProcessWatchlist(watchlist_path)
+        # TODO: Could multithread here
         for show in watchlist:
-            self.add_show(show)
+            self.add_show(show, from_watchlist=True)
 
     def add_show(self, show):
         raise NotImplementedError
@@ -88,7 +91,6 @@ class Database(RegisteredSerializable):
 
     def __iter__(self):
         return iter(self._shows)
-
 
 
 class ShowDatabase(Database):
@@ -111,7 +113,7 @@ class ShowDatabase(Database):
         # if not os.path.exists(self.path_to_showdb):
         #     self.create_database()
 
-    def add_show(self, show_details):
+    def add_show(self, show_details, from_watchlist=False):
         """Add a show to the database.
 
         Args:
@@ -125,18 +127,17 @@ class ShowDatabase(Database):
                 'Pilot episode'
         """
         title = show_details.show_title
+        # Create a Show() object
         show = Show(title)
         # FIXME: Hidden IO
         try:
             show.populate_seasons()
-        except FoundFilmError as e:
-            # TODO: Handle this properly
-            # Current idea is to go to imdb.com, do a search with request_title
-            # Then scrape the response page for *SHOW* (TV Series).
-            # Extract the IMDB ID and then perform another search on
-            # omdbapi.com with the direct ID
-            # logger.excpetion(e)
-            raise
+        except ShowNotFoundError as e:
+            if not from_watchlist:
+                raise
+            # If we know we're adding multiple shows (i.e., from a
+            # watchlist) then we should not raise again.
+            logger.info(e)
         else:
             logger.info('Add show=%r to showdb', show.ltitle)
             self._shows[show.ltitle] = show
@@ -146,7 +147,6 @@ class ShowDatabase(Database):
 
     def __repr__(self):
         return '{}({!r})'.format(self.__class__.__name__, self.path_to_db)
-
 
 
 class TrackerDatabase(Database):
@@ -199,7 +199,8 @@ class TrackerDatabase(Database):
             if ltitle in self._shows:
                 # Only want to adjust the next_episode and notes fields
                 if show.notes:
-                    logger.debug('Update note for show=%r. Was %r, now %r',
+                    logger.debug(
+                        'Update note for show=%r. Was %r, now %r',
                         ltitle,
                         self._shows[ltitle].notes,
                         show.notes,
@@ -325,7 +326,6 @@ class Episode(RegisteredSerializable):
                 return True
 
         return False
-
 
     def __repr__(self):
         return '{self.title} (S{self.season:02d}E{self.episode:02d})'.format(
@@ -533,10 +533,11 @@ class TrackedShow(ShowDetails):
 
         return False
 
-
     def __repr__(self):
-        return ('TrackedShow(title={self.title!r}, _next_episode={self._next_episode!r}, '
-            'notes={self.notes!r}, short_code={self.short_code!r})'.format(self=self))
+        return (
+            'TrackedShow(title={self.title!r}, _next_episode={self._next_episode!r}, '
+            'notes={self.notes!r}, short_code={self.short_code!r})'.format(self=self)
+        )
 
 
 class Show(ShowDetails):
@@ -550,18 +551,22 @@ class Show(ShowDetails):
         title=None,
         ltitle=None,
         request_title=None,
+        imdb_id=None,
         short_code=None,
         _seasons=None
     ):
         super().__init__(title, short_code)
         self._seasons = [] if _seasons is None else _seasons
+        self.imdb_id = imdb_id
 
-    def request_show_info(self, season=None):
+    def request_show_info(self, q, season=None, search=False):
         """Make API request with season information"""
         if season:
-            payload = {'t': self.request_title, 'season': season}
+            payload = {'i': self.imdb_id, 'season': season}
+        elif search:
+            payload = {'s': self.request_title}
         else:
-            payload = {'t': self.request_title}
+            payload = {'i': self.imdb_id}
 
         logger.debug('Make API request with payload=%r', payload)
         with requests.Session() as s:
@@ -572,43 +577,72 @@ class Show(ShowDetails):
         except requests.exceptions.HTTPError as e:
             logger.exception(e)
 
-        return response.json()
+        # return response.json()
+        q.put(response.json())
 
     def populate_seasons(self):
-        # Make initial API request with show title to get the the total
-        # number of seasons
-        show_details = self.request_show_info()
+        q = Queue()
+        # Make initial API request to search for the show we're interested in.
+        self.request_show_info(search=True)
+        response = q.get()
 
-        # Response value is returned as a string
-        if show_details['Response'] == 'False':
+        # Could not find the show in the external database (OMDbAPI)
+        if response['Response'] == 'False':
+            raise ShowNotFoundError(
+                'Could not find title={} in external database.'.format(self.request_title)
+            )
+
+        for title in response['Search']:
+            if title['Type'] == 'series':
+                self.imdb_id = title['imdbID']
+                break
+
+        # The search for title returned only films
+        if not self.imdb_id:
             raise ShowNotFoundError(
                 'Could not find show with title={}'.format(self.request_title)
             )
 
-        # We got a film of the same name
-        if show_details['Type'] == 'movie':
-            raise FoundFilmError(
-                'Found film <{!r}> with the same title '
-                'as the requested show.'.format(self.request_title)
-            )
+        self.request_show_info()
+        show_details = q.get()
+        logger.debug(show_details)
 
         total_seasons = int(show_details['totalSeasons'])
         logger.debug('Total seasons for show <%r>: %r', self.request_title, total_seasons)
 
+        threads = []
+
         # Make *total_seasons* API requests and pass responses to add_season
         # to be stored.
         for season in range(1, total_seasons+1):
-            season_details = self.request_show_info(season=season)
-            self.add_season(season_details)
+            t = threading.Thread(
+                target=self.request_show_info,
+                args=(q,),
+                kwargs={'season': season},
+            )
+            t.start()
+            threads.append(t)
+
+        # Wait for all threads to finish adding responses to the queue.
+        for t in threads:
+            t.join()
+
+        while not q.empty():
+            self.add_season(q.get())
+
+        # No guarantee that the seasons will be ordered correctly if we
+        # thread above
+        # TODO: verify that this works
+        self._seasons.sort(key=lambda k: k._episodes[0]['Season'])
 
         # Update the show title
         logger.info(
             'Update show title from <%r> to "official" title retrieved '
             'from external database <%r>.',
             self.title,
-            season_details['Title'],
+            show_details['Title'],
         )
-        self.title = season_details['Title']
+        self.title = show_details['Title']
 
     def add_season(self, season_details):
         """Create a Season instance and store API response."""
@@ -682,18 +716,18 @@ def test_update_database():
         json.dump(show_db, f, cls=EncodeShow, indent=2, sort_keys=True)
 
 
-def create_tracker(path_to_file):
-    """Create a Tracker object."""
-    tracker = TrackerDatabase()
-    for show in tracked_shows:
-        tracker.add(
-            TrackedShow(
-                title=show.title,
-                next_episode=show.next_episode,
-                notes=show.notes,
-            )
-        )
-    return tracker
+# def create_tracker(path_to_file):
+#     """Create a Tracker object."""
+#     tracker = TrackerDatabase()
+#     for show in tracked_shows:
+#         tracker.add(
+#             TrackedShow(
+#                 title=show.title,
+#                 next_episode=show.next_episode,
+#                 notes=show.notes,
+#             )
+#         )
+#     return tracker
 
 
 def update_tracker_title(tracker, database):
@@ -827,7 +861,7 @@ def process_args():
         action='store_true',
     )
 
-    return parser  #.parse_args()
+    return parser  # .parse_args()
 
 
 def handle_watchlist(args, showdb, trackerdb):
@@ -850,19 +884,20 @@ def handle_watchlist(args, showdb, trackerdb):
         new_shows = [s for s in wshows if s not in shows]
         logger.debug('Shows in watchlist, not in show database: %r', new_shows)
 
+        # TODO: Could multithread here
         for s in new_shows:
-            add_show_to_showdb(s, showdb)
+            add_show_to_showdb(s, showdb, from_watchlist=True)
         logger.info('Write show database to disk.')
         showdb.write_db()
 
         trackerdb.update_tracker_from_watchlist(args.watchlist, showdb)
 
 
-def add_show_to_showdb(title, showdb):
+def add_show_to_showdb(title, showdb, from_watchlist=False):
     """Attempt to add a show to the showdb"""
     Show = collections.namedtuple('Show', ('show_title'))
     try:
-        showdb.add_show(Show(title))
+        showdb.add_show(Show(title), from_watchlist)
     except ShowNotFoundError as e:
         raise
     except FoundFilmError as f:
@@ -923,7 +958,8 @@ def command_inc_dec(args, showdb, trackerdb):
     show.inc_dec_episode(showdb, inc=inc, dec=dec, by=args.by)
 
     next_episode = season_episode_str_from_show(show)
-    logger.debug('Update _next_episode attribute for show=%r. Was %r, now %r.',
+    logger.debug(
+        'Update _next_episode attribute for show=%r. Was %r, now %r.',
         args.ltitle,
         show._next_episode,
         next_episode,
@@ -938,13 +974,17 @@ def command_rm(args, showdb, trackerdb):
         raise ShowNotTrackedError('<{!r}> is not currently tracked.'.format(args.ltitle))
 
     if args.note:
-        logger.info('Remove note for show=<%r>. Previous note=%r.',
-            args.ltitle, trackerdb._shows[args.ltitle].notes
+        logger.info(
+            'Remove note for show=<%r>. Previous note=%r.',
+            args.ltitle,
+            trackerdb._shows[args.ltitle].notes,
         )
         trackerdb._shows[args.ltitle].notes = None
     if args.short_code:
-        logger.info('Remove short-code for show=<%r>. Previous short-code=%r.',
-            args.ltitle, trackerdb._shows[args.ltitle].short_code
+        logger.info(
+            'Remove short-code for show=<%r>. Previous short-code=%r.',
+            args.ltitle,
+            trackerdb._shows[args.ltitle].short_code,
         )
         trackerdb._shows[args.ltitle].short_code = None
 

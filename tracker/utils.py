@@ -394,8 +394,6 @@ def logging_init(filename, debug=False, append=False, console=False):
 
 
 def configure_logging(
-# TODO: Remvoe sys.path usage here
-        # path='{}/log_cfg.json'.format(sys.path[0]),
         path='log_cfg.json',
         debug=False,
         append=False,
